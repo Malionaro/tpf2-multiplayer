@@ -1023,12 +1023,12 @@ function data()
 				end
 			end
 			lap = CM.perfLane("lines", lap)
-			if CM.ticks % K.REMOVAL_POLL_EVERY == 0 then CM.pollConstructionRemovals() end
+			CM.pollConstructionRemovalsSlice()   -- every construction once per K.REMOVAL_POLL_EVERY ticks, in slices (cons.lua)
 			lap = CM.perfLane("removals", lap)
 			-- Orphaned-split heals are NOT swept here any more: a frame-tick sweep healed
 			-- on a different sim step on every instance (desync, 2026-09-12). Each watched
 			-- split is a HEALCHK in the step-locked queue instead (cons.lua CM.watchSplit).
-			if CM.ticks % K.CON_EDIT_SCAN_EVERY == 0 then CM.scanConstructionEdits() end
+			CM.scanConstructionEditsSlice()   -- every construction once per K.CON_EDIT_SCAN_EVERY ticks, in slices (cons.lua)
 			lap = CM.perfLane("edits", lap)
 
 			-- the command delay follows the measured round trips (net.lua CM.execDelayTick)
