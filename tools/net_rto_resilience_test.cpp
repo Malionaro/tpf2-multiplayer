@@ -32,7 +32,8 @@ int main() {
         printf("  Backoff RTO: %u\n", rtt.rto);
     }
 
-    // 2. Test Stalled / Lagged peer release
+    // 2. A packet a quiet (not yet evicted) peer still owes stays pending: it is
+    //    resent until the peer answers or is evicted (follow-up to PR #12)
     {
         g_pending.clear();
         g_awaiting.clear();
@@ -49,7 +50,7 @@ int main() {
         uint64_t now = GetTickCount64();
         g_streams[101].lastRecvMs = now;
         g_streams[102].lastRecvMs = now;
-        g_streams[103].lastRecvMs = now - (PEER_LAG_THRESHOLD_MS + 500); // 103 is lagged (>2s silent)
+        g_streams[103].lastRecvMs = now - 2500; // 103 has been quiet for 2.5 s
 
         // Queue packet 1 awaiting all 3 peers
         g_pending[1] = Packet{};
@@ -63,31 +64,10 @@ int main() {
         assert(g_awaiting[1].size() == 1 && g_awaiting[1].count(103));
         assert(g_pending.count(1)); // Still pending before lag sweep
 
-        // Run lag check logic (simulating NetThread pass 2c)
-        for (auto a = g_awaiting.begin(); a != g_awaiting.end();) {
-            bool allRemainingLagged = true;
-            for (uint32_t peerId : a->second) {
-                auto stIt = g_streams.find(peerId);
-                if (stIt != g_streams.end() && (now - stIt->second.lastRecvMs <= PEER_LAG_THRESHOLD_MS)) {
-                    allRemainingLagged = false;
-                    break;
-                }
-            }
-            if (allRemainingLagged && !a->second.empty()) {
-                g_pending.erase(a->first);
-                g_lastSent.erase(a->first);
-                g_firstSentTime.erase(a->first);
-                g_sendCount.erase(a->first);
-                a = g_awaiting.erase(a);
-            } else {
-                ++a;
-            }
-        }
-
-        // Packet 1 should now be released from pending, so send window is NOT blocked!
-        assert(g_pending.count(1) == 0);
-        assert(g_awaiting.count(1) == 0);
-        printf("  Lagged peer release: successfully unblocked flight window!\n");
+        // Nothing releases it before eviction: the command must reach 103 too
+        assert(g_pending.count(1) == 1);
+        assert(g_awaiting.count(1) == 1);
+        printf("  Quiet peer: its packet stays pending until it answers or is evicted\n");
     }
 
     // 3. Test Karn's algorithm RTT sampling in ProcessAck
@@ -187,11 +167,11 @@ int main() {
         }
         assert(g_outQueue.size() == MAX_OUT_QUEUE);
 
-        // Attempting to queue another line should be rejected without overflow
+        // Past the limit a line is still queued, whole: dropping it is a lost command
         Net_QueueLine("overflow_test_line");
-        assert(g_outQueue.size() == MAX_OUT_QUEUE); // Still capped at 2048
-        assert(g_droppedOverflow > 0); // Drop recorded in statistics
-        printf("  Outbound queue limit check: capped at %zu, overflow dropped cleanly!\n", MAX_OUT_QUEUE);
+        assert(g_outQueue.size() == MAX_OUT_QUEUE + 1);
+        assert(g_droppedOverflow == 0);
+        printf("  Outbound queue past %zu: the line is still queued, nothing dropped\n", MAX_OUT_QUEUE);
         while (!g_outQueue.empty()) g_outQueue.pop();
     }
 

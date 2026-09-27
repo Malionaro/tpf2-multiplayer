@@ -30,7 +30,6 @@ static const uint32_t MAGIC = 0x36545046; // "FPT6"
 static const int MIN_RESEND_MS = 40;        // Min RTO clamp for low-latency/LAN links
 static const int MAX_RESEND_MS = 1000;      // Max RTO clamp
 static const int INITIAL_RESEND_MS = 200;   // Initial RTO estimate
-static const uint32_t PEER_LAG_THRESHOLD_MS = 2000; // 2s of silence: peer is lagged
 static const size_t MAX_OUT_QUEUE = 2048;   // Hard cap on outbound event queue (NET-02)
 
 // Per-stream RTT and adaptive RTO estimator using Jacobson/Karels algorithm.
@@ -427,6 +426,10 @@ static void NetThread()
         {
             std::lock_guard<std::mutex> lk(g_mtx);
             const uint64_t now = NowMs();
+            // each peer's RTO doubles ONCE per pass that resent to it, not once
+            // per packet: with N packets in flight it used to double N times in
+            // one pass and sit at the cap (follow-up to PR #12)
+            std::set<uint32_t> backedOff;
             for (auto& kv : g_pending) {
                 uint64_t& last = g_lastSent[kv.first];
                 uint32_t effectiveRto = INITIAL_RESEND_MS;
@@ -442,14 +445,14 @@ static void NetThread()
                 if ((int)(now - last) > (int)effectiveRto) {
                     last = now;
                     g_sendCount[kv.first]++;
-                    if (wIt != g_awaiting.end()) {
-                        for (uint32_t peerId : wIt->second) {
-                            auto stIt = g_streams.find(peerId);
-                            if (stIt != g_streams.end()) stIt->second.rtt.Backoff();
-                        }
-                    }
+                    if (wIt != g_awaiting.end())
+                        for (uint32_t peerId : wIt->second) backedOff.insert(peerId);
                     SendRaw(kv.first, 1, &kv.second.ev);
                 }
+            }
+            for (uint32_t peerId : backedOff) {
+                auto stIt = g_streams.find(peerId);
+                if (stIt != g_streams.end()) stIt->second.rtt.Backoff();
             }
         }
 
@@ -468,11 +471,15 @@ static void NetThread()
             }
         }
 
-        // 2c. eviction & lagged peer release:
-        // A member silent for PEER_LAG_THRESHOLD_MS (2s) is considered lagged;
-        // packets already ACKed by all healthy members are released so one
-        // hiccup does not stall the entire lobby. Silence for g_peerTimeoutMs (10s)
-        // evicts the peer completely.
+        // 2c. eviction: a member that has sent nothing for the peer timeout --
+        // not even the keepalive it owes every 500 ms -- is out of the cohort,
+        // and every broadcast that still waits for it is released to the members
+        // that did acknowledge. NOT SOONER (2026-09-26, follow-up to PR #12): a
+        // member quiet for 2 s used to have its packets released while it was
+        // still in the cohort -- a load, an autosave or a terrain replay is often
+        // longer than that (12.8 s seen in a player's logs) -- and when it spoke
+        // again those commands were gone for good: a silent desync. It keeps
+        // being resent to until it answers or is evicted.
         {
             static uint64_t lastPass = 0;
             uint64_t now = NowMs();
@@ -488,26 +495,6 @@ static void NetThread()
             }
             lastPass = now;
 
-            // Task 1.4: release packets that only await lagged peers (>2s silence)
-            for (auto a = g_awaiting.begin(); a != g_awaiting.end();) {
-                bool allRemainingLagged = true;
-                for (uint32_t peerId : a->second) {
-                    auto stIt = g_streams.find(peerId);
-                    if (stIt != g_streams.end() && (now - stIt->second.lastRecvMs <= PEER_LAG_THRESHOLD_MS)) {
-                        allRemainingLagged = false;
-                        break;
-                    }
-                }
-                if (allRemainingLagged && !a->second.empty()) {
-                    g_pending.erase(a->first);
-                    g_lastSent.erase(a->first);
-                    g_firstSentTime.erase(a->first);
-                    g_sendCount.erase(a->first);
-                    a = g_awaiting.erase(a);
-                } else {
-                    ++a;
-                }
-            }
 
             bool evicted = false;
             size_t releasedAll = 0;
@@ -757,12 +744,19 @@ void Net_QueueLine(const char* line, const char* expectedWorld)
     // connects later starts from a transferred save, so a replay of everything
     // that happened before it existed would be wrong as well as expensive.
     if (!g_peerEverSeen) { g_droppedNoPeer++; return; }
-    // Task 10 (NET-02): Cap outbound queue to prevent unbounded memory growth during network stalls
+    // MAX_OUT_QUEUE is a warning, not a limit (follow-up to PR #12): dropping
+    // chunks lost whole commands, or half of one, on every game at once. The
+    // queue is bounded anyway: a member that stops answering is evicted at the
+    // peer timeout, and with nobody left the queue is cleared (NetThread 2c).
+    static bool warned = false;
     if (g_outQueue.size() + chunks > MAX_OUT_QUEUE) {
-        g_droppedOverflow += chunks;
-        NetLog("[net] outbound queue limit (%zu) exceeded -- dropped %zu chunk(s)\n",
-               MAX_OUT_QUEUE, chunks);
-        return;
+        if (!warned) {
+            warned = true;
+            NetLog("[net] outbound queue over %zu chunk(s) -- a member is not keeping up; everything stays queued\n",
+                   MAX_OUT_QUEUE);
+        }
+    } else {
+        warned = false;
     }
     for (size_t i = 0; i < chunks; ++i) {
         NetEvent ev{};

@@ -1013,12 +1013,13 @@ function CM.catchUpTick(now, s)
 			if CM.ticks - (CM.histProgressAt or CM.cuSince) > K.HIST_STALL_TICKS then
 				CM.histProgressAt = CM.ticks
 				CM.cuAsks = (CM.cuAsks or 1) + 1
-				-- Task 2.5 (PAC-03): If catch-up cannot resolve history after 6 retries (~33s), trigger resync instead of infinite freeze
-				if CM.cuAsks > 6 then
-					log(string.format("CATCHUP: history stalled after %d retries (%d gaps remain) -- triggering resync failover", CM.cuAsks, gaps))
-					if CM.triggerResync then pcall(CM.triggerResync, "catch-up history stalled") end
-					CM.catchingUp2 = false; CM.cuPhase = nil
-					return nil
+				-- After 6 retries (~33 s) say so once and keep asking (follow-up to PR
+				-- #12): the failover called CM.triggerResync, which does not exist, and
+				-- then gave the catch-up up -- the game ran on without the history it
+				-- was missing, forked without a word. A resync is the player's call
+				-- (the panel's RESYNC); the history usually does arrive.
+				if CM.cuAsks == 7 then
+					log(string.format("CATCHUP: history stalled after %d retries (%d gaps remain) -- still asking; if this does not clear, use RESYNC in the multiplayer panel", CM.cuAsks - 1, gaps))
 				end
 				CM.broadcast(string.format("LSNEED t=%.4f o=%s", CM.cuFrom or now, K.INSTANCE))
 				log(string.format("CATCHUP: no history line for ~%d s (end=%s, gaps=%d, %d received) -- asked the host again (%d)",
