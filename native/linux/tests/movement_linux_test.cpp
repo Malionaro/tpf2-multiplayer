@@ -75,6 +75,20 @@ int main(int argc,char** argv)
         assert(mprotect(m+pg*10,pg,PROT_NONE)==0);            // in the first batch
         assert(!SliceReadable(b,pg*20));
         assert(SliceReadable(b+pg*11,pg*289));
+        {   // SliceReadMany: a batch with holes in it answers item by item
+            m[pg*5]=7; m[pg*400]=9;
+            uint8_t o[6]{};
+            SliceReadItem items[6]={{b+pg*5,&o[0],1,false},{b+pg*10,&o[1],1,false},{b+pg*400,&o[2],1,false},
+                                    {0x10,&o[3],1,false},{b+pg*300-1,&o[4],2,false},{b,&o[5],0,false}};
+            SliceReadMany(items,6);
+            assert(items[0].ok && o[0]==7 && !items[1].ok && items[2].ok && o[2]==9);
+            assert(!items[3].ok && !items[4].ok && items[5].ok);
+            std::vector<SliceReadItem> lots(700);                   // across three batches
+            std::vector<uint8_t> got(700);
+            for (size_t i=0;i<lots.size();++i) lots[i]={b+pg*(400+i%150)+i,&got[i],1,false};
+            SliceReadMany(lots.data(),lots.size());
+            for (auto& it : lots) assert(it.ok);
+        }
         SliceVec v{}; uintptr_t hdr[3]={b,b+pg*20,b+pg*20};
         assert(!SliceReadStdVector(uintptr_t(hdr),4,SIZE_MAX,&v) && !v.begin && !v.count);
         assert(SliceReadStdVectorShape(uintptr_t(hdr),4,SIZE_MAX,&v) && v.begin==b && v.count==pg*5);

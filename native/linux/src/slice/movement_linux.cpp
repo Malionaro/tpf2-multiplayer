@@ -194,14 +194,11 @@ RoadSortResult RoadEntriesSortAt(uintptr_t world, uintptr_t mgr, uint64_t edge, 
         thread_local std::vector<int32_t> order;
         recs.resize(n*ROADENTRY_SIZE); keys.resize(n); names.resize(n); order.resize(n);
         if (!SliceRead(entries.begin,recs.data(),recs.size())) return RoadRefused;
-        for (size_t i=0;i<n;++i) {
-            int32_t id=0; memcpy(&id,recs.data()+i*ROADENTRY_SIZE,4);
-            char text[TRAINORDER_NAME_MAX+1]; size_t len=0;
-            const uintptr_t comp=world ? SliceNameComponent(world,id,type) : 0;
-            if (comp && SliceReadStdString(comp,text,sizeof(text),&len,TRAINORDER_NAME_MAX)) names[i].assign(text,len);
-            else names[i].clear();
-            keys[i]={names[i].data(),uint32_t(names[i].size()),id,0}; order[i]=int32_t(i);
-        }
+        thread_local std::vector<int32_t> ids;
+        ids.resize(n);
+        for (size_t i=0;i<n;++i) memcpy(&ids[i],recs.data()+i*ROADENTRY_SIZE,4);
+        SliceEntityNames(world,type,ids.data(),n,&names);   // a few syscalls per edge, not ~8 per vehicle
+        for (size_t i=0;i<n;++i) { keys[i]={names[i].data(),uint32_t(names[i].size()),ids[i],0}; order[i]=int32_t(i); }
         // insertion sort, as Windows: stable, the same order for the same keys
         for (size_t i=1;i<n;++i) {
             const int32_t t=order[i]; size_t j=i;

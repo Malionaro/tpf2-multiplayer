@@ -589,6 +589,40 @@ bool SliceRead(uintptr_t addr, void* out, size_t n)
     return RawRead(mech, addr, out, n) == (ssize_t)n;
 }
 
+void SliceReadMany(SliceReadItem* items, size_t count)
+{
+    const int mech = SliceReadMechanism();
+    constexpr size_t kBatch = 256;    // 8 KiB of iovecs on the caller's stack
+    iovec local[kBatch], remote[kBatch];
+    size_t at = 0;
+    while (at < count) {
+        size_t k = 0, want = 0, end = at;
+        for (; end < count && k < kBatch; ++end) {
+            SliceReadItem& it = items[end];
+            it.ok = it.n == 0;
+            if (!it.n || it.addr < 0x1000 || it.addr + it.n < it.addr) continue;
+            local[k] = { it.out, it.n };
+            remote[k] = { (void*)it.addr, it.n };
+            ++k; want += it.n;
+        }
+        bool all = false;
+        if (k && mech == kSliceReadVm) {
+            ssize_t got;
+            do { got = process_vm_readv(Pid(), local, (unsigned long)k, remote, (unsigned long)k, 0); }
+            while (got < 0 && errno == EINTR);
+            all = got == (ssize_t)want;
+        }
+        // One short read and every item of the chunk is read on its own, so a
+        // refusal is exactly the item's own SliceRead refusal.
+        for (size_t i = at; i < end; ++i) {
+            SliceReadItem& it = items[i];
+            if (!it.n) continue;
+            it.ok = (it.addr >= 0x1000 && it.addr + it.n >= it.addr) && (all || SliceRead(it.addr, it.out, it.n));
+        }
+        at = end;
+    }
+}
+
 bool SliceReadable(uintptr_t addr, size_t n)
 {
     if (n == 0) return true;
@@ -729,6 +763,14 @@ bool SliceReadStdVectorShape(uintptr_t obj, size_t stride, size_t maxCount, Slic
     if (!stride) return false;
     uint64_t v[3];
     if (!SliceRead(obj, v, sizeof(v))) return false;
+    return SliceStdVectorFromHeader(obj, v, stride, maxCount, out);
+}
+
+bool SliceStdVectorFromHeader(uintptr_t obj, const uint64_t v[3], size_t stride, size_t maxCount, SliceVec* out)
+{
+    out->begin = 0;
+    out->count = 0;
+    if (!stride) return false;
     const uintptr_t b = (uintptr_t)v[0], e = (uintptr_t)v[1], c = (uintptr_t)v[2];
     if (!b) return e == 0 && c == 0;
     if (b > e || e > c) return false;
