@@ -724,7 +724,23 @@ CM.boot("mp.pacing")
 -- Lives in res/scripts/mp/cursors.lua.
 CM.boot("mp.cursors")
 CM.boot("mp.previews")
-require("mp/fences_compat").bind(CM, K, log)
+-- Fences compatibility exports M.bind rather than a factory, so it gets CM.boot's
+-- guard written out: a missing or failing file turns multiplayer off with a
+-- message instead of raising out of the game script (boot_resilience_test).
+if not CM.bootFailed then
+	print("[ls-boot] loading mp.fences_compat")
+	local ok, fences = pcall(require, "mp/fences_compat")
+	if not ok then
+		CM.bootFail("Transport Fever 2 Multiplayer: require('mp/fences_compat') failed: " .. CM.bootText(fences))
+	elseif type(fences) ~= "table" or type(fences.bind) ~= "function" then
+		CM.bootFail("Transport Fever 2 Multiplayer: require('mp/fences_compat') returned a " .. type(fences) .. " without bind (another mod may have replaced require)")
+	else
+		local ok2, err = pcall(fences.bind, CM, K, log)
+		if not ok2 then
+			CM.bootFail("Transport Fever 2 Multiplayer: module mp.fences_compat failed while loading: " .. CM.bootText(err))
+		end
+	end
+end
 -- ---------- the Multiplayer window's stats section, in words (GUI state) ----------
 -- Lives in res/scripts/mp/stats.lua.
 CM.boot("mp.stats")
