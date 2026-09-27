@@ -131,9 +131,12 @@ class VersionReleaseTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[2] / '.git')))
         self.version = '0.7.0.6'
-        self.files = dict(zip(publisher.PAYLOAD[:4], (
-            b'msi fixture', b'zip fixture', b'DEFAULT_VERSION = "0.7.0.6"',
-            b'DEFAULT_VERSION="0.7.0.6"')))
+        self.files = {
+            'TpF2Multiplayer.msi': b'msi fixture',
+            'TpF2Multiplayer-files.zip': b'zip fixture',
+            publisher.SERVER_NAME: b'server fixture',
+            'install_proton.py': b'DEFAULT_VERSION = "0.7.0.6"',
+            'install_proton.sh': b'DEFAULT_VERSION="0.7.0.6"'}
         self.files['SHA256SUMS.txt'] = self.checksums(self.files)
         native = {f'tpf2mp-linux-{self.version}-native.{ext}': ext.encode()
                   for ext in ('run', 'tar.gz')}
@@ -194,9 +197,13 @@ class VersionReleaseTest(unittest.TestCase):
     def test_native_files_on_both_install_releases_and_page_published_last(self):
         self.run_version('--publish')
         uploads = [(url, kw['data']) for method, url, kw in self.writes if '?name=' in url]
-        self.assertEqual(len(uploads), 18)  # Eight files twice, plus two launchers.
+        # every install file to both install releases, the two launchers, and the direct
+        # installers once more on the version's page
+        direct = publisher.page_direct(self.version)
+        self.assertEqual(len(uploads), 2 * len(self.files) + 2 + len(direct))
         for name, data in self.files.items():
-            self.assertEqual([b for url, b in uploads if url.endswith('?name=' + name)], [data, data])
+            want = 3 if name in direct else 2
+            self.assertEqual([b for url, b in uploads if url.endswith('?name=' + name)], [data] * want)
         for name in (publisher.WINDOWS_NAME, publisher.LINUX_NAME):
             self.assertEqual(sum(url.endswith('?name=' + name) for url, _ in uploads), 1)
         published = [(url, kw['body']) for method, url, kw in self.writes
@@ -211,11 +218,17 @@ class VersionReleaseTest(unittest.TestCase):
         self.assertIn('/releases/tag/v0.7.0.6', page['body'])
         self.assertEqual(page['target_commitish'], 'fixture-commit')
         self.assertFalse(any('/git/' in url for _, url, _ in self.writes))
-        # Existing launcher is replaced, but install payloads never go to the page.
+        # Existing launcher is replaced; of the install files only the direct installers go to the page.
         self.assertIn(('DELETE', f'/repos/{publisher.REPO}/releases/assets/90', {}), self.writes)
         page_uploads = [url.split('?name=')[1] for url, _ in uploads if '/upload/1?' in url]
-        self.assertEqual(set(page_uploads), {publisher.WINDOWS_NAME, publisher.LINUX_NAME})
+        self.assertEqual(set(page_uploads), {publisher.WINDOWS_NAME, publisher.LINUX_NAME, *direct})
         self.assertIn(('DELETE', f'/repos/{publisher.REPO}/releases/assets/91', {}), self.writes)
+
+    def test_damaged_server_package_stops_before_upload(self):
+        (self.root / publisher.SERVER_NAME).write_bytes(b'damaged')
+        with self.assertRaisesRegex(SystemExit, 'SHA256SUMS'):
+            self.run_version('--publish')
+        self.assertEqual(self.writes, [])
 
     def test_prerelease_page_is_not_latest(self):
         self.mod['prerelease'] = True
@@ -285,7 +298,8 @@ class PageReleaseTest(LauncherReleaseTest):
         for name, data in self.payload.items():
             self.assertEqual([blob for n, blob in uploads if n == name], [data, data])
         first_delete = next(i for i, (method, _, _) in enumerate(self.writes) if method == 'DELETE')
-        self.assertEqual(sum('?name=' in url for _, url, _ in self.writes[:first_delete]), 18)
+        # every payload file to both install releases, then the two launchers
+        self.assertEqual(sum('?name=' in url for _, url, _ in self.writes[:first_delete]), 2 * len(self.payload) + 2)
         self.assertTrue(all('/releases/assets/' in url for method, url, _ in self.writes if method == 'DELETE'))
         final = self.writes[-1]
         self.assertTrue(final[1].endswith('/releases/7'))

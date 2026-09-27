@@ -504,3 +504,40 @@ servers, must update. This commit only stamps earlier changes: native cargo
 filter capture/replay and terrain-sidecar capture/serving remain unported.
 The upstream cargo-filter and repeated-load validation does not establish
 native Linux support; existing gameplay-validation limits still apply.
+
+The [dev `4617fb6f` integration](UPSTREAM_dev_4617fb6f.md) advances
+native Linux to **0.7.0.7 / FPT6**, retains commands owed to quiet members,
+adds adaptive retransmission and pacing fixes, and displays the version in
+the native panel. All peers must update. Direct installers now accompany
+the launchers on the version page. Existing native feature limits remain.
+
+## Fantasia generator buffer reuse
+
+The native Big Maps plugin now applies buffer reuse automatically when a
+Fantasia map has area above 8193² heightmap samples (128 x 128 tiles,
+32 x 32 km). Generator dimensions are `64 * tiles + 1` samples. Enable the normal Fantasia
+Workshop mod; no additional low-memory mod is needed. `generator_memory=1`
+is the default in the `[tpf2_bigmap]` configuration section; set it to `0`
+and restart to disable it. Fantasia's files remain unchanged.
+
+If you installed the earlier `tpf2_bigmap_fantasia_low_memory_1` stand-in,
+disable it in the mod list before using the normal Fantasia generator. The
+old installer and stand-in files were retired upstream. Check the plugin log
+for `generator memory: ... served with buffer reuse`. See
+[integration evidence](UPSTREAM_dev_5d73f324.md); native rendered terrain and
+peak memory still need live validation.
+
+`generator_memory_budget_pct=50` lets Fantasia spend half of available RAM on
+buffers to preserve generation parallelism; values above 90 are capped, and
+0 (or negative) requests the fewest buffers. Linux samples `MemAvailable`
+at each generator open, additionally capped by `CommitLimit - Committed_AS`
+when `vm.overcommit_memory=2`. Failed queries fall back to the fewest buffers.
+This is a buffer scheduling budget, not a hard limit on game memory: values
+alive together may require more buffers. Stock generators retain their
+fewest-buffer path, and maps at/below 128 x 128 tiles remain unchanged.
+
+The [dev `cc0981bb` integration](UPSTREAM_dev_cc0981bb.md) adds the dedicated-server
+archive and hosting guide, spreads shared construction checks across updates,
+and ports the resync hold fix to Linux: no ten-second deadline, game-local
+SDL gesture diagnostics, and focus-loss cleanup. Version remains 0.7.0.7.
+Offline regression tests cover these changes; no new live gameplay result is claimed.

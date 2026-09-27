@@ -42,7 +42,7 @@ int main() {
     const uint32_t OLD=77, NEW=78;   // the joiner's process before and after its restart
     auto send=[&](uint32_t session,const std::string& epoch,uint32_t seq,const char* line,
                   uint32_t ack=NO_ACK,uint32_t bits=0,int chunk=0,int chunks=1) {
-        Packet p{}; p.h.magic=MAGIC; memcpy(p.h.world,epoch.data(),32);
+        Packet p{}; p.h.cumAck=NO_ACK; p.h.magic=MAGIC; memcpy(p.h.world,epoch.data(),32);
         p.h.session=session; p.h.ackSession=g_session; p.h.seq=seq; p.h.ack=ack; p.h.ackBits=bits;
         p.h.type=line ? 1 : 0; p.ev.chunkIdx=(uint16_t)chunk; p.ev.chunkCount=(uint16_t)chunks;
         if(line) strcpy_s(p.ev.text,line);

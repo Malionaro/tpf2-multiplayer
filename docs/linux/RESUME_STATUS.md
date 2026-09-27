@@ -1,3 +1,11 @@
+## Dev 6584fd03: Fantasia plugin routing
+
+Native Big Maps now embeds and applies the shared buffer-reuse pass without
+a separate mod, through the verified fopen PLT route. See
+[the integration record](UPSTREAM_dev_6584fd03.md) and
+[RE evidence](../re/linux/DEV_6584FD03.md). Lab startup was blocked by the uid-map
+permission error; generated terrain and peak memory remain unobserved.
+
 Current incremental integration: [dev 0620342e / 0.6.1.28](UPSTREAM_dev_0620342e.md): adaptive Steam rate and redesigned-menu Cross-play. No new inherited gameplay gaps closed; lab launch blocked by uid-map permission.
 
 ## Current integration: release 0.6.1.18 (2026-09-21)

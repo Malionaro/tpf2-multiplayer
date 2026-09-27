@@ -81,6 +81,10 @@ see [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 ## Playing on a dedicated relay
 
+(A **dedicated server** is different: a full game that keeps a world running by itself, listed
+as a dedicated server too, and joined like any hosted game. To run one of your own, see
+[HOSTING_A_SERVER.md](HOSTING_A_SERVER.md).)
+
 A relay is a lobby on a server with no game of its own. Nobody needs an open port, and it keeps
 the latest world between sessions. The project runs a public one, which appears in the PUBLIC GAMES
 list while it is up.

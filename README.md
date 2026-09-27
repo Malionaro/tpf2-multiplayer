@@ -21,7 +21,7 @@ This branch also contains a **native Linux build-35924 port**. Its current
 integration includes Windows **release 0.7** plus dev `8c3c02a5` and a native
 dedicated server. See [Linux installation](docs/linux/INSTALL.md),
 [current integration and test evidence](docs/linux/UPSTREAM_dev_8c3c02a5.md), and
-[dedicated server setup](tools/server/README.md). Canonical simulation ordering is now on by default (`TPF2MP_ORDER_CANON=0`
+[dedicated server setup](docs/HOSTING_A_SERVER.md). Canonical simulation ordering is now on by default (`TPF2MP_ORDER_CANON=0`
 disables it); see the [dev ad3d66e4 integration](docs/linux/UPSTREAM_dev_ad3d66e4.md).
 Settings must match Windows peers. Loaded-game lifetime and cross-platform
 validation remain outstanding; matching versions do not establish gameplay parity.
@@ -110,6 +110,7 @@ send them yourself if you report a bug. The full text is the
 | document | covers |
 |---|---|
 | [docs/PLAYING.md](docs/PLAYING.md) | hosting, joining, relays, the in-game window, speed, companies, troubleshooting |
+| [docs/HOSTING_A_SERVER.md](docs/HOSTING_A_SERVER.md) | running a dedicated server: on a Windows PC, or on a Linux server or VPS |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | the components, a command's path, time and pacing, sessions, files |
 | [docs/REPLICATION.md](docs/REPLICATION.md) | what replicates and how, per action, and how divergence is detected |
 | [docs/NETWORKING.md](docs/NETWORKING.md) | lobby protocol, join codes, save transfer, dedicated relay, master server |
@@ -351,3 +352,36 @@ servers, must update. This commit only stamps earlier changes: native cargo
 filter capture/replay and terrain-sidecar capture/serving remain unported.
 The upstream cargo-filter and repeated-load validation does not establish
 native Linux support; existing gameplay-validation limits still apply.
+
+The [dev `4617fb6f` integration](docs/linux/UPSTREAM_dev_4617fb6f.md) advances
+native Linux to **0.7.0.7 / FPT6**, retains commands owed to quiet members,
+adds adaptive retransmission and pacing fixes, and displays the version in
+the native panel. All peers must update. Direct installers now accompany
+the launchers on the version page. Existing native feature limits remain.
+
+The [dev `6584fd03` integration](docs/linux/UPSTREAM_dev_6584fd03.md) moves
+Fantasia terrain-buffer reuse into the native Big Maps plugin, enabled by
+`generator_memory=1`. No additional mod is needed. Offline checks cover all
+three climates; native rendered output and peak memory remain unmeasured.
+Version remains 0.7.0.7.
+
+The [dev `46ca48ef` integration](docs/linux/UPSTREAM_dev_46ca48ef.md) adds
+Fantasia generator size/layer/buffer diagnostics and optimizer refusal reasons
+to both native Linux and Windows. Version remains 0.7.0.7.
+
+The [dev `15ba4df5` integration](docs/linux/UPSTREAM_dev_15ba4df5.md) fixes
+Fantasia buffer reuse to measure generator dimensions in heightmap samples.
+128 x 128 tiles remain unchanged; larger sample areas use the optimizer.
+Native build and symbolic pipeline tests pass; live memory savings remain
+unmeasured. Version remains 0.7.0.7.
+
+The [dev `5d73f324` integration](docs/linux/UPSTREAM_dev_5d73f324.md) adds
+Fantasia generator memory budgeting on native Linux, allowing extra buffers
+for parallelism. Release remains 0.7.0.7; native generation timing and peak
+memory validation remain outstanding.
+
+The [dev `cc0981bb` integration](docs/linux/UPSTREAM_dev_cc0981bb.md) adds the dedicated-server
+archive and hosting guide, spreads shared construction checks across updates,
+and ports the resync hold fix to Linux: no ten-second deadline, game-local
+SDL gesture diagnostics, and focus-loss cleanup. Version remains 0.7.0.7.
+Offline regression tests cover these changes; no new live gameplay result is claimed.

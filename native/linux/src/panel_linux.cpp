@@ -791,6 +791,17 @@ static void RunPost(const Post& post)
 static bool g_actionsHeld=false;
 static bool g_physicalKeys[SDL_NUM_SCANCODES]{};
 static uint32_t g_physicalButtons=0;
+static int ActiveGestureKeyLocked()
+{
+    for (int i=0;i<SDL_NUM_SCANCODES;++i) if(g_physicalKeys[i])return i;
+    for (int i=0;i<32;++i) if(g_physicalButtons & (1u<<i))return -(i+1);
+    return 0;
+}
+int ActiveGestureKey()
+{
+    std::lock_guard<std::mutex> lk(g_mtx);
+    return ActiveGestureKeyLocked();
+}
 bool SetActionsHeld(bool held)
 {
     std::lock_guard<std::mutex> lk(g_mtx);
@@ -817,6 +828,11 @@ static int SDLCALL EventFilter(void*, SDL_Event* e)
             g_physicalButtons|=1u<<(e->button.button-1);
         if (e->type==SDL_MOUSEBUTTONUP && e->button.button>0 && e->button.button<=32)
             g_physicalButtons&=~(1u<<(e->button.button-1));
+        if(e->type==SDL_WINDOWEVENT && e->window.event==SDL_WINDOWEVENT_FOCUS_LOST) {
+            // Releases outside the game may not arrive through its SDL filter.
+            for(bool& down:g_physicalKeys)down=false;
+            g_physicalButtons=0;
+        }
         consumed = HandleEventLocked(e, &post);
         // Keep the camera still while our save writes the terrain sidecar.
         // SavingNow try-locks: never wait for the command thread from input.

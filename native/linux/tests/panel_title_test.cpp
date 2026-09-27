@@ -212,12 +212,14 @@ int main(int argc,char** argv) {
         return EventFilter(nullptr,&e);
     };
     assert(event(SDL_KEYDOWN)==1 && !SetActionsHeld(true));
+    assert(ActiveGestureKey()==SDL_SCANCODE_A);
     assert(event(SDL_KEYUP)==1 && SetActionsHeld(true));
     for(auto type:{SDL_KEYDOWN,SDL_KEYUP,SDL_MOUSEMOTION,SDL_MOUSEBUTTONDOWN,
                   SDL_MOUSEBUTTONUP,SDL_MOUSEWHEEL,SDL_TEXTINPUT,SDL_TEXTEDITING})
         assert(event(type)==1);
     assert(SetActionsHeld(false));
     assert(event(SDL_MOUSEBUTTONDOWN)==1 && !SetActionsHeld(true));
+    assert(ActiveGestureKey()==-SDL_BUTTON_LEFT);
     assert(event(SDL_MOUSEBUTTONUP)==1 && SetActionsHeld(true));
     auto flag=[](const char* value) {
         const char* path="panel-input-hold-test.flags";
@@ -244,9 +246,15 @@ int main(int argc,char** argv) {
     assert(event(SDL_QUIT)==1);
     assert(SetActionsHeld(false) && event(SDL_MOUSEMOTION)==1);
     assert(event(SDL_KEYDOWN)==1 && !SetActionsHeld(true));
+    assert(ActiveGestureKey()==SDL_SCANCODE_A);
     assert(event(SDL_KEYUP)==1 && SetActionsHeld(true));
     flag("0");assert(!g_flagInputHold && event(SDL_MOUSEMOTION)==1);
     flag("1");flag("invalid");assert(!g_flagInputHold); // same opt-in parsing as Windows
+    assert(SetActionsHeld(false));
+    event(SDL_KEYDOWN);event(SDL_MOUSEBUTTONDOWN);
+    SDL_Event lost{};lost.type=SDL_WINDOWEVENT;lost.window.event=SDL_WINDOWEVENT_FOCUS_LOST;
+    EventFilter(nullptr,&lost);
+    assert(ActiveGestureKey()==0 && SetActionsHeld(true));
     assert(SetActionsHeld(false));
     P().view.inGame=false;
     PrepareTitleBackdrop(8,8);assert(g_titleBackdrop.size()==256);

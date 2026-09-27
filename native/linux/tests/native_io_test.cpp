@@ -2,7 +2,7 @@
 #include <cassert>
 #include <thread>
 
-namespace panel { bool SetActionsHeld(bool) { return true; } }
+namespace panel { int ActiveGestureKey() { return 0; } bool SetActionsHeld(bool) { return true; } }
 static bool originalDoneCalled=false;
 static void* expectedBinding=nullptr;
 static void* expectedLua=nullptr;
