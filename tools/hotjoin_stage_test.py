@@ -132,11 +132,18 @@ with tempfile.TemporaryDirectory() as temporary:
         # loses to the joiner's own 100% (the merge rule); the 10% steps in
         # between are the joiner's reports. What the sender must do is open the
         # sequence with 0% before any joiner report, and never go backwards.
-        check('the host log shows the sender opening the roster at 0% and never regressing',
-              bool(pcts) and pcts[0] == 0 and pcts == sorted(pcts), str(pcts))
-        check('the sender\'s first word came before any joiner report',
-              bool(sender_lines()) and 'receiving save 0%' in sender_lines()[0], (sender_lines() or ['none'])[0])
+        # The joiner's own "receiving save 0%" can reach the host before the
+        # sender's: the merge rule then keeps the joiner's (at least as far
+        # along) and the sender's 0% is never logged. Either way the roster
+        # opens at 0% -- that is what the players see (flaked 3 in 5 runs on
+        # 2026-09-27 when this required the sender to win the race).
         history = stage_history('client1')
+        opened = [s for s in history if s]
+        check('the roster opens at "receiving save 0%" and the sender never regresses',
+              bool(pcts) and pcts == sorted(pcts) and bool(opened) and opened[0] == 'receiving save 0%',
+              f'{pcts} | {" | ".join(history)}')
+        check('the sender drives the roster: it names the joiner\'s progress before the joiner is done',
+              bool(sender_lines()) and 'receiving save ' in sender_lines()[0], (sender_lines() or ['none'])[0])
         check('the roster went through receiving stages to "save received, loading"',
               any(s.startswith('receiving save ') for s in history) and history[-1] == 'save received, loading',
               ' | '.join(history))

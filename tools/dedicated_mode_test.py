@@ -77,8 +77,11 @@ check("  ... on by default in dedicated mode, dedicated_render=1 turns drawing b
       "static int   g_flagDedRender = 0;" in MENU and "if (g_flagDedicated && !g_flagDedRender) InterlockedExchange(&g_noRender, 1);" in MENU)
 check("the host command line carries --dedicated", 'if (g_flagDedicated) wcscat_s(wpub, L" --dedicated");' in MENU)
 check("and --local-port from dedicated_port (a box that also runs the relay)", 'L" --local-port %d", g_flagDedPort' in MENU)
+# the list is drawn by the title panel since the legacy renderer went (2026-09-26)
+PANEL = open(os.path.join(REPO, "native", "src", "menu_title_panel.inl"), encoding="utf-8", errors="replace").read()
 check("the public list labels a dedicated game a dedicated server",
-      '(!strcmp(r.type, "relay") || !strcmp(r.type, "dedicated")) ? L"dedicated server"' in MENU)
+      'bool dedicated = !strcmp(r.type, "relay") || !strcmp(r.type, "dedicated")' in PANEL
+      and 'dedicated ? L"Dedicated" : L"Player hosted"' in PANEL)
 
 # ---- the lobby and the master
 check("lobby.py takes --dedicated", 'ap.add_argument("--dedicated", action="store_true"' in LOBBY)
