@@ -41,6 +41,9 @@ static const size_t    SLOT_GET_DEVICE_QUEUE     = 0x7a0;
 static const size_t    SLOT_QUEUE_PRESENT        = 0xad0;
 // 0x351814a stores the lookup of vkQueueSubmit here (build 35924).
 static const size_t    SLOT_QUEUE_SUBMIT         = 0xae0;
+// 0x3518202 stores the lookup of vkResetDescriptorPool (named at 0x35181e1) here:
+// past QueueSubmit, so outside FindDeviceSlot's verified range.
+static const size_t    SLOT_RESET_DESCRIPTOR_POOL = 0xb28;
 
 static Tpf2mpLogFn g_log = nullptr;
 static uintptr_t   g_base = 0;
@@ -548,7 +551,15 @@ static void InitDeviceDetour(void* dispatcher, VkDevice dev)
                 void* mine[5] = { (void*)&MyAllocSets, (void*)&MyFreeSets, (void*)&MyResetPool,
                                   (void*)&MyDestroyPool, (void*)&MyDestroyLayout };
                 PFN_vkVoidFunction fns[5]; void** slots[5]; bool all = true;
-                for (int i = 0; i < 5; ++i) { fns[i] = gdpa(dev, names[i]); slots[i] = FindDeviceSlot(slot, fns[i]); all = all && slots[i]; }
+                for (int i = 0; i < 5; ++i) {
+                    fns[i] = gdpa(dev, names[i]);
+                    // the dispatcher is alphabetical: the pool reset is the one slot past QueueSubmit
+                    slots[i] = i == 2 ? (fns[i] && slot[SLOT_RESET_DESCRIPTOR_POOL / 8] == (void*)fns[i]
+                                             ? &slot[SLOT_RESET_DESCRIPTOR_POOL / 8] : nullptr)
+                                      : FindDeviceSlot(slot, fns[i]);
+                    if (!slots[i]) g_log("[dedicated] descriptor set recycling: no unique dispatcher slot for %s\n", names[i]);
+                    all = all && slots[i];
+                }
                 if (all) {
                     dsrecycle::Real real;
                     real.alloc = reinterpret_cast<PFN_vkAllocateDescriptorSets>(fns[0]);
@@ -561,7 +572,7 @@ static void InitDeviceDetour(void* dispatcher, VkDevice dev)
                         for (int i = 0; i < 5; ++i) *slots[i] = mine[i];
                         g_log("[dedicated] descriptor sets kept across pool resets (dedicated_recycle_sets=0 turns it off)\n");
                     }
-                } else g_log("[dedicated] descriptor set recycling unavailable: its dispatcher slots are not unique\n");
+                } else g_log("[dedicated] descriptor set recycling unavailable (the game is untouched)\n");
             }
         } else g_log("[dedicated] render suppression unavailable: Vulkan dispatcher slots are not unique\n");
     }
