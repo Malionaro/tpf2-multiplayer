@@ -179,7 +179,9 @@ who plays it and whether it is locked; yours is first. Click a company to select
   loan, then **Delete now**. Nobody may be playing it, and a locked one needs its password.
 - **Allow** / **Deny** decides whether its vehicles may stop at your stations.
 
-**New company** opens a form: a name, a colour, whether the company's new vehicles are painted in
+Every company starts the way the first one did: the first company has the new game's starting
+money, and every company founded later gets a loan of the same size (which it pays back like any
+loan). **New company** opens a form: a name, a colour, whether the company's new vehicles are painted in
 its colour, and an optional password. **Your company settings** renames your company, changes its
 colour, turns the vehicle paint on or off (turning it on repaints the company's vehicles), sets or
 removes the password, and opens or closes your stations to everyone. The game's own company window

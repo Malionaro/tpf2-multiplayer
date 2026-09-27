@@ -705,15 +705,18 @@ function CM.cmEnsurePids()
 		if not CM.cmCompanyPid[cid] then
 			local bound = false
 			for _, p in pairs(CM.cmCompanyPid) do if p == human then bound = true end end
+			CM.cmWorldBound = CM.cmWorldBound or {}
 			if cid == 1 and CM.cmReserved1 then
 				-- this machine switched into another company before company 1 existed:
 				-- the entity that took over the world player's assets and money is company 1
 				CM.cmCompanyPid[cid] = CM.cmReserved1
+				CM.cmWorldBound[cid] = true
 				CM.cmLog(string.format("CM: company 1 -> player %s (the world's player's assets, moved there by an earlier switch)", tostring(CM.cmReserved1)))
 				CM.cmReserved1 = nil
 			elseif cid == 1 and human and not bound then
 				CM.cmCompanyPid[cid] = human
 				CM.cmMyCompany = cid
+				CM.cmWorldBound[cid] = true
 				CM.cmLog(string.format("CM: company 1 -> the world's player %s", tostring(human)))
 			else
 				local pid = nil
@@ -844,6 +847,7 @@ function CM.cmSaveState()
 	for k, n in pairs(co.founded) do st.founded[k] = n end
 	for cid, pid in pairs(CM.cmCompanyPid) do st.pid[tostring(cid)] = pid end
 	if co.legacy then st.legacy = co.legacy end
+	if co.start then st.start = { l = co.start.l } end
 	st.reserved1 = CM.cmReserved1
 	return st
 end
@@ -935,6 +939,7 @@ function CM.cmApplySaved(sv)
 	for cid in pairs(co.list) do maxId = math.max(maxId, cid) end
 	co.nextId = math.max(tonumber(sv.nextId) or 1, maxId + 1)
 	if type(sv.legacy) == "table" then co.legacy = sv.legacy end
+	if type(sv.start) == "table" and tonumber(sv.start.l) then co.start = { l = tonumber(sv.start.l) } end
 	CM.co = co
 	CM.cmCompanyPid = {}
 	for k, pid in pairs(sv.pid or {}) do
@@ -1054,9 +1059,32 @@ function CM.cmAttribute(c)
 end
 
 -- ---------- company commands, at their stamp ----------
+-- STARTING CAPITAL (2026-09-27). Company 1 of a new world is the world's player and
+-- has the game's starting money; every other company was an empty addPlayer()
+-- entity ("take a loan to fund it"). Now the world player's LOAN is remembered at
+-- the stamp the first company is created -- before any switch, so every machine
+-- reads the same untouched entity -- and every later company starts with a loan of
+-- that size (balance and loan alike, a type-0 journal entry), the way a new game
+-- starts. A world whose player had no loan then gives new companies nothing.
+function CM.cmNoteStart()
+	local co = CM.co
+	if co.start or next(co.list) ~= nil then return end
+	local _, l = CM.cmWallet(CM.cmHuman())
+	l = math.floor((tonumber(l) or 0) + 0.5)
+	co.start = { l = l }
+	CM.cmLog(string.format("CM: starting capital for new companies: a loan of %d (the world player's)", l))
+end
+function CM.cmGrantStart(cid)
+	local st = CM.co.start
+	local pid = CM.cmCompanyPid[cid]
+	if not st or not pid or (st.l or 0) <= 0 or (CM.cmWorldBound or {})[cid] then return end
+	CM.cmBookJournal(pid, st.l, K.JOURNAL_LOAN or 0)
+	CM.cmLog(string.format("CM: co%d starts with a loan of %d", cid, st.l))
+end
 function CM.cmCreate(cid, founderKey, fields)
 	fields = fields or {}
 	local co = CM.co
+	CM.cmNoteStart()
 	local ord = nil
 	if founderKey then co.founded[founderKey] = (co.founded[founderKey] or 0) + 1; ord = co.founded[founderKey] end
 	-- one colour per company: a colour another company uses gives way to a free one
@@ -1068,6 +1096,7 @@ function CM.cmCreate(cid, founderKey, fields)
 	co.nextId = math.max(co.nextId or 1, cid + 1)
 	CM.cmRefreshDerived()
 	CM.cmEnsurePids()
+	CM.cmGrantStart(cid)
 	return cid
 end
 -- a new company's id: counting up (a deleted company's id is not handed out again

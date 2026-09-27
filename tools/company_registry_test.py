@@ -251,6 +251,31 @@ check("a known Steam player without their id this time is still that player", H.
       and H.cm().co.origin["a"] == "s:7656100000000077" and H.cm().co.members["n:Bob"] is None, str(H.cm().co.origin["a"]))
 
 # ===========================================================================
+# 8b. starting capital: every new company starts like company 1 did
+# ===========================================================================
+for order in (["b", "a"], ["a", "b"]):
+    A = Machine("a", "7656100000000001", "Kaguya", ROSTER, chip=1)
+    B = Machine("b", "7656100000000002", "Friend", ROSTER, chip=2)
+    for m in (A, B):
+        m.world({100: {"balance": 10000000, "loan": 10000000}}, TOWN, 100)   # a new game: the money is borrowed
+        m.boot()
+        m.join()
+    s = Session([A, B])
+    s.pump(order)
+    tag = "starting capital, joins " + "/".join(order)
+    check(f"{tag}: company 1 keeps the world's money", A.holdings(1)[1:3] == (10000000, 10000000), str(A.holdings(1)))
+    check(f"{tag}: company 2 starts with the same loan and cash", A.holdings(2)[1:3] == (10000000, 10000000)
+          and B.holdings(2)[1:3] == (10000000, 10000000), f"{A.holdings(2)} {B.holdings(2)}")
+    same_company_state(s, tag, [1, 2])
+    s.request(A, "CMNEW 0 1 Third")
+    s.pump()
+    third = A.cm().cmMyCompany
+    check(f"{tag}: a company founded later starts the same way", A.holdings(third)[1:3] == (10000000, 10000000)
+          and B.holdings(third)[1:3] == (10000000, 10000000), f"{A.holdings(third)} {B.holdings(third)}")
+    rec = from_lua(A.cm().cmSaveState())
+    check(f"{tag}: the starting loan rides in the save", rec.get("start", {}).get("l") == 10000000, str(rec.get("start")))
+
+# ===========================================================================
 # 9. one Steam account in two games (a local test with a sandbox)
 # ===========================================================================
 SAME = "7656100000000042"
