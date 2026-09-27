@@ -104,7 +104,7 @@ interactive step.
 
 ### 1. Prepare the machine
 
-Every release from 0.7.0.7 on comes with the server scripts as one download,
+Every release from 0.7.0.6 on comes with the server scripts as one download,
 `TpF2Multiplayer-Server-Linux.tar.gz`. As root:
 
 ```sh
