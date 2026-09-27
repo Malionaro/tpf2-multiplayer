@@ -73,6 +73,8 @@ something here is fixed, the release note says so and the entry goes.
 
 - Not replicated: manual departure, "depart now" and maintenance targets;
   map editor and scenario commands. [REPLICATION.md](REPLICATION.md#not-replicated).
+- **Sandbox mode: only placing a town is shared** *(2026-09-27)*. The town tool's placement is replicated (TOWNC, [re/SANDBOX.md](re/SANDBOX.md)); demolishing a town, the town and industry controls, and industry placement are not, or not yet tested: using them desyncs the session until a resync.
+- **A held line-editor callback never reaches the replay** *(measured 2026-09-27)*. STRICT LINE CREATION hands the editor's held callback to the originator's createLine replay at its Add, recognised as the first Add from sendCommand's call site on the claiming thread. A game-script command is added later on another thread (made on one tid, added on another, logged while building the town replay), so that match never happens; the spare line covers the usual case, and a create without a spare leaves the editor without its new line selected.
 - **A stop's load settings are not carried by line replays** *(from the code, 2026-09-20)*.
   Each line stop has a `stopConfig` (unload only, maximum load) that the line decoder does not
   read and the replay does not set, so a replayed line edit resets those settings on every

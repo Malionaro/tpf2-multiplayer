@@ -1,5 +1,11 @@
 # TpF2 Multiplayer — Transport Fever 2 multiplayer mod
 
+Current release integration: **0.7.1**, Windows dev `d3f199f9`; see the
+[integration and validation record](docs/linux/UPSTREAM_dev_d3f199f9.md). All peers, including dedicated
+servers, must update. Existing native Sandbox town-tool capture, minimap and
+cargo-filter limitations remain. Upstream performance measurements were not
+repeated locally; matching release numbers do not establish gameplay parity.
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Website: [silver2127.github.io/tpf2-multiplayer](https://silver2127.github.io/tpf2-multiplayer/)** ·
@@ -385,3 +391,52 @@ archive and hosting guide, spreads shared construction checks across updates,
 and ports the resync hold fix to Linux: no ten-second deadline, game-local
 SDL gesture diagnostics, and focus-loss cleanup. Version remains 0.7.0.7.
 Offline regression tests cover these changes; no new live gameplay result is claimed.
+
+The [dev `3cc80874` integration](docs/linux/UPSTREAM_dev_3cc80874.md) records upstream merging
+the completed Linux ports through `cc0981bb` back into Windows history. Its
+source tree is identical to the previous Linux integration; runtime behavior
+and version 0.7.0.7 are unchanged. Lua now matches upstream without exceptions.
+
+The [dev `d9196011` integration](docs/linux/UPSTREAM_dev_d9196011.md) preserves
+the release tag when publishing and checks the returned tag afterward, failing
+loudly on a mismatch. This shared tooling change leaves native runtime behavior
+and version 0.7.0.7 unchanged. Publication checks are tested offline.
+
+The [dev `24b8f636` integration](docs/linux/UPSTREAM_dev_24b8f636.md) guards shared Fences compatibility
+loading so a missing or failing module disables multiplayer without aborting
+game loading. Offline Lua and native tests pass; no live gameplay result is
+claimed. Version remains 0.7.0.7.
+
+The [dev `ea15a156` integration](docs/linux/UPSTREAM_dev_ea15a156.md) batches native guarded page
+reads and avoids scanning whole-world vectors for a single road edge. Name
+slot pairs are copied in one guarded read. Version remains 0.7.0.7; local
+validation uses memory fixtures and ELF checks, with no in-game timing claim.
+
+The [dev `491716c3` integration](docs/linux/UPSTREAM_dev_491716c3.md) retains
+upstream's dedicated-server measurements for the road-entry guarded-read fix.
+Runtime behavior and version 0.7.0.7 are unchanged; no local performance
+measurement is claimed.
+
+The [dev `84058da7` integration](docs/linux/UPSTREAM_dev_84058da7.md) adds native
+dedicated descriptor recycling and corrects its verified Vulkan dispatcher
+search boundary. Live activation remains unverified because lab startup failed.
+
+The [dev `52a1630a` integration](docs/linux/UPSTREAM_dev_52a1630a.md) validates
+native dedicated descriptor recycling's reset slot at dispatcher +0xb28 and
+names failed lookups while retaining the Linux byte guard. Lab startup was
+blocked before game execution; runtime activation remains unvalidated.
+
+The [dev `4d03caf7` integration](docs/linux/UPSTREAM_dev_4d03caf7.md) retains
+upstream's Sandbox tools and TownInfo research. This documentation-only change
+adds no town replication; its Windows measurements do not establish native or
+cross-platform town-creation determinism. Version remains 0.7.0.7.
+
+The [dev `02edb897` integration](docs/linux/UPSTREAM_dev_02edb897.md) retains
+upstream's dedicated descriptor-recycler measurements. Runtime behavior and
+version 0.7.0.7 are unchanged; no local performance measurement is claimed.
+
+The [dev `f0212c87` integration](docs/linux/UPSTREAM_dev_f0212c87.md) adds the
+shared multiplayer toolbar, pipe-idle and leader-loss fixes, and imports native
+road-read batching, threaded save compression, terrain page initialization and
+Steam poll throttling. Native town-tool capture and minimap extensions remain
+unported after static RE and blocked lab startup. Release remains 0.7.0.7.

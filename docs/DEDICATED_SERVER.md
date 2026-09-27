@@ -109,7 +109,7 @@ while the session ran. Numbers for the native Linux build; under Proton only the
   default 65,530 is within reach of a world this size. Untried idea, cheap to
   try: park the dedicated camera zoomed right in over empty terrain once the
   world is up -- nobody looks through it, and the engine would then prepare
-  almost nothing per frame.
+  almost nothing per frame. (Tried 2026-09-27: about 6% of a core; see below.)
 - **`dedicated_fps` is the ceiling on the clock, not just render work.** The
   engine consumes one batch per frame, and a batch is 200 ms of simulation, so
   the frame rate caps the speed: 30 frames a second is 6x, 20 is 4x. Do not lower
@@ -155,6 +155,61 @@ server. Measured again with one player in, 1x, world settled:
   thread. 49,000 mappings still stand. The bullet above is the item to take next.
 - Memory: 27.3 GiB resident, and the load pushed swap use to 3.9 GiB (the
   alignment pass peaked at 28.8 GiB resident with `memory.pressure` around 2%).
+
+### The road-entry sort's page walk (2026-09-27, 0.7.0.6)
+
+On 0.7.0.6 the engine asked for 400 ms batches again at 1x with nobody in. The
+simulation thread was 82% of a core, 89% of it inside `SliceRoadEntriesAdd`: every
+road vehicle's edge Add re-sorts the edge by name, and reaching the edge went through
+`SliceReadStdVector` on the edge-use manager's two whole-world vectors, which proved
+each one readable a page per `process_vm_readv`. About 1,000 syscalls per Add, 293,000
+a second. `ea15a15` checks those vectors' shape only and reads the one element,
+batches `SliceReadable`'s page probes (256 to a syscall), and reads an entity's
+component slots in one go. Installed on the server over the 0.7.0.6 library the same
+afternoon, measured three minutes after the world came up:
+
+- `tpf2_engine_pace.txt` back to **`base=200000`**, the nominal batch.
+- The simulation thread ~33% of a core; `process_vm_readv` 16,000 a second, from the
+  other guarded readers.
+- The main thread is now the busiest (70%): lavapipe's 6,800 `mmap` and 6,800
+  `munmap` a second, the item above.
+
+### Descriptor sets across pool resets (2026-09-27)
+
+lavapipe's churn was the game's descriptor pools: reset every frame, ~260 sets
+allocated again, each with its own 4 KiB memfd mapping (7,200 `mmap` and `munmap` a
+second). With `dedicated_render=0` no draw ever reads a set, so
+`native/src/descriptor_recycle.h` keeps a reset pool's sets and hands them out again
+(`dedicated_recycle_sets`, on by default). Measured on the server, world settled:
+
+- `mmap` 0 and `munmap` 17 in 10 s, from 78,000 and 77,700; 97% of sets reused, a
+  real reset every 600th per pool.
+- Main thread 47% of a core, from 62-70%; the kernel's share of it 6%, from 30%.
+- What is left on the main thread is the engine's own frame preparation (the
+  game's code and `malloc`), which runs at `dedicated_fps` whether anyone looks or
+  not; the camera idea above is the next thing to try.
+
+### The road sort's remaining reads, and the camera (2026-09-27)
+
+With the page walk gone the road sort was still ~12% of the sim thread: ~8
+guarded reads per vehicle for its name (`4315e9b` reads each level for the whole
+edge in one `process_vm_readv`, `SliceEntityNames`), and a fixed 8 reads plus an
+engine lookup on every Add before the "fewer than two vehicles" return, which is
+most Adds (`60e48ff`: four reads, the lookup only when there is something to
+sort). Same server, 1,250 Adds a second, three minutes after the world came up:
+
+- guarded reads 8,300 a second (from ~16,000); the road hook 8.5% of the sim thread;
+- the sim thread 22% of a core at 1x, `base=200000`; 59% of it is now the
+  engine's own code and 17% `malloc`.
+
+The camera, tried with `xdotool` scroll clicks on display :9: zoomed all the way
+in, the main thread settles at 35% of a core; the save's own view 41%; zoomed all
+the way out 49%. Parking the camera would save about 6% of a core -- not worth a
+change to the mod's GUI script, which every joiner must match.
+
+Loading the world is not the time to measure: until `mp_loading.txt` says "world
+loaded", the pace file is the previous run's, and the load itself spends its time
+in copy-on-write faults and their TLB shootdowns.
 
 ## Limits
 

@@ -1,5 +1,11 @@
 # TpF2 Multiplayer on Linux: install, uninstall, logs
 
+Current release integration: **0.7.1**, Windows dev `d3f199f9`; see the
+[integration and validation record](UPSTREAM_dev_d3f199f9.md). All peers, including dedicated
+servers, must update. Existing native Sandbox town-tool capture, minimap and
+cargo-filter limitations remain. Upstream performance measurements were not
+repeated locally; matching release numbers do not establish gameplay parity.
+
 This release is for the **native Linux version** of Transport Fever 2 on Steam. If you run the
 Windows version through Proton, it does not apply.
 
@@ -541,3 +547,47 @@ archive and hosting guide, spreads shared construction checks across updates,
 and ports the resync hold fix to Linux: no ten-second deadline, game-local
 SDL gesture diagnostics, and focus-loss cleanup. Version remains 0.7.0.7.
 Offline regression tests cover these changes; no new live gameplay result is claimed.
+
+The [dev `3cc80874` integration](UPSTREAM_dev_3cc80874.md) records upstream merging
+the completed Linux ports through `cc0981bb` back into Windows history. Its
+source tree is identical to the previous Linux integration; runtime behavior
+and version 0.7.0.7 are unchanged. Lua now matches upstream without exceptions.
+
+The [dev `d9196011` integration](UPSTREAM_dev_d9196011.md) preserves
+the release tag when publishing and checks the returned tag afterward, failing
+loudly on a mismatch. This shared tooling change leaves native runtime behavior
+and version 0.7.0.7 unchanged. Publication checks are tested offline.
+
+The [dev `24b8f636` integration](UPSTREAM_dev_24b8f636.md) guards shared Fences compatibility
+loading so a missing or failing module disables multiplayer without aborting
+game loading. Offline Lua and native tests pass; no live gameplay result is
+claimed. Version remains 0.7.0.7.
+
+The [dev `ea15a156` integration](UPSTREAM_dev_ea15a156.md) batches native guarded page
+reads and avoids scanning whole-world vectors for a single road edge. Name
+slot pairs are copied in one guarded read. Version remains 0.7.0.7; local
+validation uses memory fixtures and ELF checks, with no in-game timing claim.
+
+Native dedicated servers now default to descriptor-set recycling when
+`dedicated_render=0`; `dedicated_recycle_sets=0` disables it. Ordinary rendered
+sessions do not use it. See [dev 84058da7](UPSTREAM_dev_84058da7.md) for the
+verified dispatcher correction and live-test limitations.
+
+### Integration through dev f0212c87
+
+[Integration and test record](UPSTREAM_dev_f0212c87.md). Release remains 0.7.0.7.
+The shared multiplayer toolbar button is included with both icon resolutions.
+Native Sandbox town-tool capture and the minimap (including climate colors and
+M shortcut) remain unported; do not place towns with the native Sandbox tool
+in multiplayer sessions. Shared TOWNC replay is present but cross-platform town
+determinism was not tested live.
+
+The native save compressor defaults to four libzstd workers (limited by CPU
+count); `save_threads=0` disables it, or use 1..16 to choose a worker count.
+It falls back to the game's compressor when byte checks or system libzstd support
+fail. The Steam polling hook defaults to a 2 ms interval while busy;
+`steam_poll_ms=0` disables it, and positive values clamp at 100 ms. The existing
+200 ms idle wait is retained. These settings use `tpf2_menu_flags.txt` in the
+native module root, falling back to its data folder when the root file is absent.
+Restart the game after changing these startup flags. Local lab startup was blocked;
+no live saving speedup, polling cost or toolbar appearance is claimed.

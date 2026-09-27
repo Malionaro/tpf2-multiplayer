@@ -558,7 +558,7 @@ K.JOURNAL_LOAN = 0
 -- a 30,000,000 loan is several ticks of settling.
 K.LOAN_SETTLE_TICKS = 90
 K.JOURNAL_TRANSFER = 6
-K.STRICT_OPS = { VREV = true, VSTOP = true, VLINE = true, VSELL = true, VDEPOT = true, VREPL = true, VBUY = true, LCREATE = true, LUPDATE = true, LDELETE = true, LSPARE = true }   -- replay on the originator too, but only when ARMED=1 (the slice cancelled it)
+K.STRICT_OPS = { VREV = true, VSTOP = true, VLINE = true, VSELL = true, VDEPOT = true, VREPL = true, VBUY = true, LCREATE = true, LUPDATE = true, LDELETE = true, LSPARE = true, TOWNC = true }   -- replay on the originator too, but only when ARMED=1 (the slice cancelled it)
 -- CONX/CONP have no slice cancel (the construction's module params cannot be
 -- read from the proposal); the originator instead deletes its native copy and
 -- replays, gated by c.cancelled rather than ARMED. See execConX.
@@ -662,6 +662,9 @@ CM.boot("mp.terrain")
 -- ---------- the asset brush (ASSETCAP -> ASSETS) ----------
 -- Lives in res/scripts/mp/assets.lua.
 CM.boot("mp.assets")
+-- ---------- Sandbox mode's tools: towns (TOWNC) ----------
+-- Lives in res/scripts/mp/sandbox.lua (after mp.cons: it uses CM.unescName).
+CM.boot("mp.sandbox")
 local function execute(c)
 	-- any other command may edit the road/rail network: EDEMO's node index
 	-- (cons.lua) is only reused across consecutive bulldozes
@@ -698,6 +701,7 @@ local function execute(c)
 	elseif c.op == "SPEEDVOTE" then CM.execSpeedVote(c)
 	elseif c.op == "TERRAIN" then CM.execTerrain(c)
 	elseif c.op == "ASSETS" then CM.execAssets(c)
+	elseif c.op == "TOWNC" then CM.execTownCreate(c)
 	elseif c.op == "CMNEW" or c.op == "CMSWITCH" or c.op == "CMDEL" or c.op == "CMPW" or c.op == "CMNAME" or c.op == "CMOPEN" then CM.execCompanyCmd(c)
 	else log("unknown op: " .. tostring(c.op)) end
 end
@@ -724,7 +728,23 @@ CM.boot("mp.pacing")
 -- Lives in res/scripts/mp/cursors.lua.
 CM.boot("mp.cursors")
 CM.boot("mp.previews")
-require("mp/fences_compat").bind(CM, K, log)
+-- Fences compatibility exports M.bind rather than a factory, so it gets CM.boot's
+-- guard written out: a missing or failing file turns multiplayer off with a
+-- message instead of raising out of the game script (boot_resilience_test).
+if not CM.bootFailed then
+	print("[ls-boot] loading mp.fences_compat")
+	local ok, fences = pcall(require, "mp/fences_compat")
+	if not ok then
+		CM.bootFail("Transport Fever 2 Multiplayer: require('mp/fences_compat') failed: " .. CM.bootText(fences))
+	elseif type(fences) ~= "table" or type(fences.bind) ~= "function" then
+		CM.bootFail("Transport Fever 2 Multiplayer: require('mp/fences_compat') returned a " .. type(fences) .. " without bind (another mod may have replaced require)")
+	else
+		local ok2, err = pcall(fences.bind, CM, K, log)
+		if not ok2 then
+			CM.bootFail("Transport Fever 2 Multiplayer: module mp.fences_compat failed while loading: " .. CM.bootText(err))
+		end
+	end
+end
 -- ---------- the Multiplayer window's stats section, in words (GUI state) ----------
 -- Lives in res/scripts/mp/stats.lua.
 CM.boot("mp.stats")
@@ -875,6 +895,66 @@ if CM.bootFailed then
 	return
 end
 print("[ls-boot] all modules loaded")
+
+-- THE TOOLBAR BUTTON (2026-09-27): a toggle in the game's main toolbar, beside
+-- Big Maps' minimap button, that shows and hides the Multiplayer window -- the
+-- same thing as Ctrl+Shift+D, through the same one-byte tpf2mp_dash.txt the
+-- menu DLL's chord flips and the panel's poll reads, so the three never disagree.
+-- GUI state only; a dedicated server (no screen) never adds it.
+CM.MP_BUTTON_ICON = "ui/button/mp_multiplayer@2x.tga"   -- tools/make_mp_button_icon.py
+CM.MP_BUTTON_TRIES = 600   -- frames to wait for the toolbar
+function CM.dashSetShown(shown)
+	local f = io.open(K.BASE .. "tpf2mp_dash.txt", "w")
+	if f then f:write(shown and "1\n" or "0\n"); f:close() end
+	local D = CM.dash
+	if D and D.win then
+		if not shown and D.chatOpen and CM.chatCloseInput then CM.chatCloseInput() end
+		D.shown = shown
+		D.win:setVisible(shown, false)
+	end
+	CM.mpButtonSync(shown)
+end
+-- the button follows the window when something else moved it (the chord, the "x")
+function CM.mpButtonSync(shown)
+	if CM.mpButton and CM.mpButtonShown ~= shown then
+		CM.mpButtonShown = shown
+		pcall(function() CM.mpButton:setSelected(shown, false) end)
+	end
+end
+function CM.mpButtonInstall()
+	local main = api.gui.util.getById("mainButtonsLayout")
+	local layout = main and main:getItem(0)
+	if not layout then return false end
+	-- sized like the game's disk buttons: a 60 px disk (style_sheet/mp_lockstep.lua
+	-- mpToolbarDisk) around a 34 px icon. The button's size is its CONTENT, the
+	-- style's 13 px padding goes outside it: sizing the button 60 made an 86 px
+	-- disk with the icon off to one side (seen in game, 2026-09-27).
+	local icon = api.gui.comp.ImageView.new(CM.MP_BUTTON_ICON)
+	icon:setMinimumSize(api.gui.util.Size.new(34, 34))
+	icon:setMaximumSize(api.gui.util.Size.new(34, 34))
+	local button = api.gui.comp.ToggleButton.new(icon)
+	button:setTooltip("Multiplayer (Ctrl+Shift+D)")
+	button:setStyleClassList({ "mpToolbarDisk" })
+	button:setMinimumSize(api.gui.util.Size.new(34, 34))
+	button:setMaximumSize(api.gui.util.Size.new(34, 34))
+	layout:insertItem(button, 0)
+	CM.mpButton = button
+	CM.mpButtonSync(not (CM.dash and CM.dash.shown == false))
+	button:onToggle(function(on) CM.dashSetShown(on == true) end)
+	print("[ls-gui] toolbar button added")
+	return true
+end
+-- retried each frame until the toolbar exists; an error stops the retries, so a
+-- half-built button is never added twice
+function CM.mpButtonTick()
+	if CM.mpButton or (CM.mpButtonTries or 0) >= CM.MP_BUTTON_TRIES then return end
+	CM.mpButtonTries = (CM.mpButtonTries or 0) + 1
+	local ok, err = pcall(CM.mpButtonInstall)
+	if not ok then
+		CM.mpButtonTries = CM.MP_BUTTON_TRIES
+		print("[ls-gui] could not add the toolbar button: " .. tostring(err))
+	end
+end
 
 function data()
 	return {
@@ -1430,6 +1510,7 @@ function data()
 			if CM.dedicatedGui then
 				if guiTick % 300 ~= 0 then return end
 			else
+				if CM.dedicatedGui == false then CM.mpButtonTick() end
 				if CM.actionSoundsGuiTick then pcall(CM.actionSoundsGuiTick, CM.recoveryGuiHeld()) end
 				-- THE SPARE LINE'S EDITOR, FROM THIS THREAD (lines.lua CM.spareFireWrite,
 				-- 2026-09-19). A New line click opens the editor on a pre-made line the
@@ -1727,6 +1808,7 @@ function data()
 						if f then f:write("0\n"); f:close() end
 						D.shown = false
 						if D.win then D.win:setVisible(false, false) end
+						CM.mpButtonSync(false)
 					end
 					D.hideDash = hideDash
 					-- The native close button and the footer share hideDash; keep tabs uncluttered.
@@ -2234,6 +2316,7 @@ function data()
 					if not shown and D.chatOpen and CM.chatCloseInput then CM.chatCloseInput() end
 					D.win:setVisible(shown, false)
 				end
+				CM.mpButtonSync(shown)
 			end)
 		end,
 	}

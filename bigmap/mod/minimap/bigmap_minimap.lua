@@ -44,7 +44,11 @@ local CAMERA_SEGMENTS = 32
 local INSTALL_FRAMES = 600       -- frames to wait for the main toolbar
 local MEASURE_FRAMES = 30        -- frames to wait for the container's first layout
 local GATHER_SECONDS = 0.006     -- network gathering budget per frame
-local BUTTON_ICON = "ui/button/medium/terrain@2x.tga"
+-- The M key (src/minimap.h MinimapPollEventDetour): the plugin bumps a counter in
+-- this file, relative to the game folder, on every M it takes; a change toggles.
+local KEY_FILE = "plugins/tpf2_bigmap_minimap_key.txt"
+local KEY_FRAMES = 5             -- frames between reads of KEY_FILE
+local BUTTON_ICON = "ui/bigmap/minimap_button@2x.tga"   -- written by the plugin (src/minimap.h SyncMinimapIcon)
 local PLACEHOLDER = "ui/icons/main-menu/map_town.tga"   -- the plugin replaces it; must stay 31 chars
 -- res/textures/ui/ui.zip ships these two only as @2x: the plain names are no file.
 local TOWN_ICON = "ui/icons/main-menu/map_town@2x.tga"
@@ -1412,6 +1416,7 @@ local function buildWindow()
     local window = api.gui.comp.Window.new(tr("Minimap"), columns)
     window:addHideOnCloseHandler()
     window:onClose(function()
+        state.shown = false
         if state.button then
             state.button:setSelected(false, false)
         end
@@ -1438,16 +1443,23 @@ local function install()
     if not layout then
         return false
     end
+    -- sized like the game's disk buttons: a 60 px disk (the plugin's style sheet,
+    -- mod/minimap/bigmap_minimap_style.lua, class bigmapToolbarDisk) around a
+    -- 34 px icon. The button's size is its CONTENT, the style's 13 px padding goes
+    -- outside it: sizing the button 60 x 60 made an oval (seen in game, 2026-09-27).
     local icon = api.gui.comp.ImageView.new(BUTTON_ICON)
-    icon:setMinimumSize(api.gui.util.Size.new(48, 48))
-    icon:setMaximumSize(api.gui.util.Size.new(60, 60))
+    icon:setMinimumSize(api.gui.util.Size.new(34, 34))
+    icon:setMaximumSize(api.gui.util.Size.new(34, 34))
     local button = api.gui.comp.ToggleButton.new(icon)
     button:setTooltip(tr("Minimap (Big Maps)"))
-    button:setMinimumSize(api.gui.util.Size.new(48, 48))
+    button:setStyleClassList({ "bigmapToolbarDisk" })
+    button:setMinimumSize(api.gui.util.Size.new(34, 34))
+    button:setMaximumSize(api.gui.util.Size.new(34, 34))
     layout:insertItem(button, 0)
     state.button = button
     state.window = buildWindow()
     button:onToggle(function(on)
+        state.shown = on
         if on then
             later(openWindow)
         else
@@ -1458,6 +1470,48 @@ local function install()
     end)
     log("installed")
     return true
+end
+
+-- The M key, as a click on the button: the counter's first value is only the
+-- baseline (a press from an earlier game must not open the map on load).
+local function keyTick()
+    if not state.installed then
+        return
+    end
+    state.keyFrame = (state.keyFrame or 0) + 1
+    if state.keyFrame % KEY_FRAMES ~= 0 then
+        return
+    end
+    local ok, value = pcall(function()
+        local f = io.open(KEY_FILE, "r")
+        if not f then
+            return nil
+        end
+        local v = f:read("*l")
+        f:close()
+        return v
+    end)
+    if not ok or value == nil then
+        return
+    end
+    if state.keySeen == nil then
+        state.keySeen = value
+        return
+    end
+    if value == state.keySeen then
+        return
+    end
+    state.keySeen = value
+    local on = not state.shown
+    state.shown = on
+    state.button:setSelected(on, false)
+    if on then
+        later(openWindow)
+    else
+        later(function()
+            state.window:close()
+        end)
+    end
 end
 
 -- Retried each frame until the toolbar exists; an error stops the retries so a
@@ -1495,6 +1549,7 @@ function data()
         guiInit = tryInstall,
         guiUpdate = function()
             tryInstall()
+            keyTick()
             runJobs()
             local ok, err = pcall(gatherTick)
             if not ok then

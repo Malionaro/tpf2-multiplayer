@@ -173,7 +173,7 @@ static const uintptr_t CALLER_CALENDAR_SPEED = 0x4f2af6;
 static const int BLOB_SIZE = 48;
 
 // Every other command factory, same hook shape. Steal sizes are the ones
-// args_probe ran against these functions live. ids 2..10, 13..17; 0 and 1 are above.
+// args_probe ran against these functions live. ids 2..10, 13..20; 0 and 1 are above.
 struct Factory { uintptr_t rva; int steal; int id; const char* name; const char* kind; };
 static const Factory FACTORIES[] = {
     { 0x9dca00, 15, 2, "BuyVehicle",     "vehicle" },
@@ -196,6 +196,13 @@ static const Factory FACTORIES[] = {
     // A stopped train used to halt on the clicking game only and run on the
     // peers -- a position desync one stamp later.
     { 0x9df070, 20, 18, "SetUserStopped", "vehicle" },
+    // Sandbox mode's town tool (UI::TownBuilder). Cancelled and shipped as
+    // TOWNC, built by every game at the stamp (docs/re/SANDBOX.md). Steal 15 from the
+    // factory table in docs/re/COMMANDS.md.
+    { 0x9dd0b0, 15, 19, "CreateTowns",    "town"    },
+    // The town bulldozer (UI::TownBulldozerAction). Probe stage: logged, never
+    // cancelled. Steal 20 from docs/re/COMMANDS.md.
+    { 0x9dd920, 20, 20, "RemoveTown",     "town"    },
 };
 static const int NUM_FACTORIES = (int)(sizeof(FACTORIES) / sizeof(FACTORIES[0]));
 
@@ -589,4 +596,8 @@ enum VecRead { VEC_UNREADABLE, VEC_EMPTY, VEC_OK };
 #include "slice/moveorder.inl"   // SHIP AND AIRCRAFT CLAIM ORDER (moveorder.h)
 #include "slice/town_trace.inl"   // TOWN DEVELOPMENT TRACE (diagnostic, towntrace=1; ../town_trace.h)
 #include "slice/hotjoin_order.inl"   // HOT-JOIN ORDER: person batches in entity-id order (hotjoin_order.inl)
+#include "slice/steam_poll.inl"   // the game's Steam poll thread, throttled while busy (steam_poll.inl)
+#include "save_zstd.h"   // the save stream logic shared with Linux
+#include "../third_party/zstd/lib/zstd.h"   // zstd 1.5.7, built in with ZSTD_MULTITHREAD (build.bat)
+#include "slice/save_zstd.inl"   // SAVES COMPRESS ON ZSTD WORKER THREADS (save_zstd.inl)
 #include "slice/init.inl"   // the relay blobs, hook installation, Init and DllMain

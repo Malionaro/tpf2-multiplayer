@@ -8,12 +8,51 @@ from pathlib import Path
 from types import SimpleNamespace
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location(
     "publisher", Path(__file__).resolve().parents[1] / "publish_release.py")
 publisher = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(publisher)
+
+
+class PublicationTagTest(unittest.TestCase):
+    """Exercise publication with the real write wrapper and mocked API calls."""
+    def setUp(self):
+        self.gh = publisher.GitHub('offline', dry=False)
+        self.rel = dict(id=42, tag_name='v0.7.0.7')
+        self.url = f'/repos/{publisher.REPO}/releases/42'
+        self.transport = self.enterContext(patch.object(
+            publisher.urllib.request, 'urlopen', side_effect=AssertionError('network')))
+        self.enterContext(contextlib.redirect_stdout(io.StringIO()))
+
+    def test_publish_reads_back_matching_tag(self):
+        for latest in (False, True):
+            with self.subTest(latest=latest):
+                self.gh.call = Mock(side_effect=[{}, dict(self.rel)])
+                publisher.published(self.gh, self.rel, latest)
+                self.assertEqual(self.gh.call.call_args_list, [
+                    unittest.mock.call('PATCH', self.url, body={
+                        'draft': False, 'make_latest': 'true' if latest else 'false',
+                        'tag_name': self.rel['tag_name']}),
+                    unittest.mock.call('GET', self.url)])
+
+    def test_wrong_tag_fails_with_repair_details(self):
+        for wrong in ('untagged-af3adbbc86d2df64365f', 'v0.7.0.6'):
+            with self.subTest(tag=wrong):
+                self.gh.call = Mock(side_effect=[{}, dict(tag_name=wrong)])
+                with self.assertRaises(SystemExit) as raised:
+                    publisher.published(self.gh, self.rel, True)
+                message = str(raised.exception)
+                self.assertIn('published, but GitHub reports its tag', message)
+                self.assertIn(repr(wrong), message)
+                self.assertIn("PATCH /releases/42 with tag_name 'v0.7.0.7'", message)
+                self.assertEqual(self.gh.call.call_count, 2)
+
+    def test_dry_run_never_contacts_service(self):
+        self.gh.dry = True
+        publisher.published(self.gh, self.rel, True)
+        self.transport.assert_not_called()
 
 
 class LauncherReleaseTest(unittest.TestCase):
@@ -74,7 +113,7 @@ class LauncherReleaseTest(unittest.TestCase):
         self.args.publish = True
         self.run_release()
         self.assertEqual(self.writes[-1], ("PATCH", f"/repos/{publisher.REPO}/releases/42",
-                         {"body": {"draft": False, "make_latest": "false"}}))
+                         {"body": {"draft": False, "make_latest": "false", "tag_name": "launcher-v1.2.3"}}))
 
     def test_launcher_update_leaves_existing_mod_release_intact(self):
         self.existing = [dict(tag_name='v0.7.0.5', draft=False, id=7)]
@@ -209,7 +248,8 @@ class VersionReleaseTest(unittest.TestCase):
         published = [(url, kw['body']) for method, url, kw in self.writes
                      if method == 'PATCH' and 'draft' in kw['body']]
         self.assertEqual([body for _, body in published], [
-            {'draft': False, 'make_latest': 'false'}, {'draft': False, 'make_latest': 'true'}])
+            {'draft': False, 'make_latest': 'false', 'tag_name': '0.7.0.6'},
+            {'draft': False, 'make_latest': 'true', 'tag_name': 'v0.7.0.6'}])
         self.assertTrue(published[-1][0].endswith('/1'))
         self.sleep.assert_not_called()
         page = next(kw['body'] for method, url, kw in self.writes
@@ -312,7 +352,7 @@ class PageReleaseTest(LauncherReleaseTest):
             self.assertIn('/download/v0.7.0.5/' + name, body)
         publications = [kw['body'] for method, _, kw in self.writes
                         if method == 'PATCH' and 'draft' in kw['body']]
-        self.assertEqual(publications, [{'draft': False, 'make_latest': 'false'}])
+        self.assertEqual(publications, [{'draft': False, 'make_latest': 'false', 'tag_name': '0.7.0.5'}])
 
     def test_corrupt_native_digest_prevents_writes(self):
         self.prepare()

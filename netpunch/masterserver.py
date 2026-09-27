@@ -292,18 +292,38 @@ def _pipe_close(*socks):
             pass
 
 
-def _pipe_copy(src, dst, done):
-    """One direction of a pair; the first direction to end ends both."""
+def _pipe_copy(src, dst, done, last, why, name):
+    """One direction of a pair; the first direction to end ends both.
+
+    Idle means no byte EITHER way for PIPE_IDLE: a save streams one way, and the
+    silent direction timing out on its own cut every transfer at 120 s
+    (2026-09-27: 15 did, none ran longer). `last` is the monotonic time of the
+    last byte either way; `why` collects how the pair ended."""
     moved = 0
     try:
         while moved < PIPE_MAX_BYTES:
-            b = src.recv(1 << 20)
-            if not b:
+            try:
+                b = src.recv(1 << 20)
+            except socket.timeout:
+                if done.is_set():
+                    break
+                if time.monotonic() - last[0] < PIPE_IDLE:
+                    continue                             # quiet this way, busy the other
+                why.append("idle both ways")
                 break
-            dst.sendall(b)
+            if not b:
+                why.append(name + " closed")
+                break
+            last[0] = time.monotonic()
+            try:
+                dst.sendall(b)
+            except socket.timeout:
+                why.append(name + ": the other end stopped reading")
+                break
+            last[0] = time.monotonic()
             moved += len(b)
-    except OSError:
-        pass
+    except OSError as e:
+        why.append("%s: %s" % (name, e.__class__.__name__))
     finally:
         if not done.is_set():
             done.set()
@@ -320,14 +340,16 @@ def _pipe_splice(h, j, pair):
     for s in (h, j):
         s.settimeout(PIPE_IDLE)
     t0 = time.time()
-    back = threading.Thread(target=_pipe_copy, args=(j, h, done), name="pipe-jh", daemon=True)
+    last, why = [time.monotonic()], []
+    back = threading.Thread(target=_pipe_copy, args=(j, h, done, last, why, "joiner"), name="pipe-jh", daemon=True)
     back.start()
-    down = _pipe_copy(h, j, done)
+    down = _pipe_copy(h, j, done, last, why, "host")
     back.join(PIPE_IDLE)
     _pipe_close(h, j)
     with _pipe_lock:
         _pipe_pairs[0] -= 1
-    sys.stderr.write("pipe %s..: %d B host->joiner in %.0f s\n" % (pair[:6], down, time.time() - t0))
+    sys.stderr.write("pipe %s..: %d B host->joiner in %.0f s -- %s\n"
+                     % (pair[:6], down, time.time() - t0, why[0] if why else "ended"))
 
 
 def _pipe_hello(c, addr):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the cumulative Linux Lua integration: Windows dev cc0981bb (release 0.7.0.7)."""
+"""Verify the cumulative Linux Lua integration: Windows dev d3f199f9 (release 0.7.1)."""
 import argparse
 import hashlib
 from pathlib import Path
@@ -7,12 +7,12 @@ import subprocess
 import sys
 
 REPO = Path(__file__).resolve().parents[2]
-REFERENCE = "cc0981bb2808c0475eb2a39cef16781098e97405"
+REFERENCE = "d3f199f9f414b69a5098b11dc3e0ac1028f752c2"
 INCOMING = REFERENCE
 INCOMING_FILES = set()
 PREFIX = "mod/mp_lockstep_1/"
-# Native cancelled rename/color records explicitly request origin replay.
-MERGED_SHA256 = {"res/scripts/mp/inject.lua": "88e129a55b5d1d9138f786116b3f5ecc5d9e589c1c556cf5d9ca1939ad088822"}
+# Upstream now includes the native origin-replay change; no exceptions needed.
+MERGED_SHA256 = {}
 
 
 def main():
@@ -40,7 +40,7 @@ def main():
         if missing or extra or different:
             return 1
         manifest = "".join(f"{hashlib.sha256(actual[p]).hexdigest()}  {p}\n" for p in sorted(expected))
-        print(f"PASS: {len(expected)} Lua files: exact Windows dev cc0981bb (0.7.0.7) except {len(MERGED_SHA256)} pinned cumulative merges")
+        print(f"PASS: {len(expected)} Lua files: exact Windows dev d3f199f9 (0.7.1) except {len(MERGED_SHA256)} pinned cumulative merges")
         print("Lua manifest sha256: " + hashlib.sha256(manifest.encode()).hexdigest())
         # The glyph overlays are runtime dependencies of the shared stylesheet.
         # Check packaged copies too: Lua equality alone cannot catch omitted assets.
@@ -55,7 +55,17 @@ def main():
             print(f"FAIL: missing, extra or changed HUD glyph: {p}", file=sys.stderr)
         if bad_glyphs:
             return 1
-        print(f"PASS: {len(expected_glyphs)} HUD glyph textures exact Windows dev cc0981bb (0.7.0.7)")
+        print(f"PASS: {len(expected_glyphs)} HUD glyph textures exact Windows dev d3f199f9 (0.7.1)")
+        # The shared toolbar is installed on Linux too; its two resolutions must
+        # accompany the stylesheet and script, including in packaged mod copies.
+        buttons = ["res/textures/ui/button/mp_multiplayer.tga",
+                   "res/textures/ui/button/mp_multiplayer@2x.tga"]
+        for name in buttons:
+            p = args.mod_dir / name
+            if not p.is_file() or p.read_bytes() != git("show", commit + ":" + PREFIX + name):
+                print(f"FAIL: missing or changed toolbar texture: {name}", file=sys.stderr)
+                return 1
+        print(f"PASS: {len(buttons)} multiplayer toolbar textures exact Windows dev d3f199f9")
         return 0
     except (OSError, subprocess.CalledProcessError) as error:
         print(f"Cannot verify Windows Lua baseline: {error}", file=sys.stderr)

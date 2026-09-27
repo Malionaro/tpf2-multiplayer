@@ -66,12 +66,15 @@ exit /b 0
 
 :slice
 %CC% /c src\hook.cpp /Fo:out\hook_slice.obj                                          || exit /b 1
-%CC% /c src\slice_hook.cpp /Fo:out\slice_hook.obj                                    || exit /b 1
+%CC% /DZSTD_MULTITHREAD /c src\slice_hook.cpp /Fo:out\slice_hook.obj                                    || exit /b 1
 ml64 /nologo /c /Fo out\deferrelay_slice.obj src\deferrelay_slice.asm                || exit /b 1
 ml64 /nologo /c /Fo out\trainorderrelay_slice.obj src\trainorderrelay_slice.asm      || exit /b 1
 ml64 /nologo /c /Fo out\moveorderrelay_slice.obj src\moveorderrelay_slice.asm        || exit /b 1
 ml64 /nologo /c /Fo out\hotjoinrelay_slice.obj src\hotjoinrelay_slice.asm          || exit /b 1
-link /nologo /DLL /OUT:out\tpf2_slice%SFX%.dll out\hook_slice.obj out\slice_hook.obj out\deferrelay_slice.obj out\trainorderrelay_slice.obj out\moveorderrelay_slice.obj out\hotjoinrelay_slice.obj || exit /b 1
+REM zstd 1.5.7 with its worker threads, for the save stream (third_party\zstd, src\slice\save_zstd.inl)
+if not exist out\zstd mkdir out\zstd
+cl /nologo /O2 /MT /W0 /c /DZSTD_MULTITHREAD /DZSTD_DISABLE_ASM /DZSTD_LEGACY_SUPPORT=0 /Fo:out\zstd\ third_party\zstd\lib\common\*.c third_party\zstd\lib\compress\*.c third_party\zstd\lib\decompress\*.c || exit /b 1
+link /nologo /DLL /OUT:out\tpf2_slice%SFX%.dll out\hook_slice.obj out\slice_hook.obj out\deferrelay_slice.obj out\trainorderrelay_slice.obj out\moveorderrelay_slice.obj out\hotjoinrelay_slice.obj out\zstd\*.obj || exit /b 1
 exit /b 0
 
 :workshop
