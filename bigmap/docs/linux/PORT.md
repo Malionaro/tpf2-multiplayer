@@ -480,3 +480,12 @@ above are reported by upstream. The report does not establish coverage of
 every root-boundary, vehicle-crossing or renderer-culling case. Native placement
 distance remains unwidened and the menu diagonal limit above still applies;
 the upstream gameplay report does not remove that implementation gap.
+
+## Fantasia shared Lua integration — dev ba95f609
+
+The optional Fantasia stand-ins and existing Lua buffer-reuse pass are available
+on Linux through the explicit `--mods` source installer. No native patch is
+added. Offline Lua 5.2 comparisons pass for all climates at 32 and 40 km; native
+engine output and memory reduction remain unvalidated. The earlier generation
+buffer-reuse limitation above concerns engine validation, not availability of
+this shared Lua mod. See the [integration record](../../../docs/linux/UPSTREAM_dev_ba95f609.md).

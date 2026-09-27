@@ -510,3 +510,17 @@ native Linux to **0.7.0.7 / FPT6**, retains commands owed to quiet members,
 adds adaptive retransmission and pacing fixes, and displays the version in
 the native panel. All peers must update. Direct installers now accompany
 the launchers on the version page. Existing native feature limits remain.
+
+## Optional Fantasia low-memory generator
+
+From a source checkout, with the game closed:
+
+```sh
+python3 bigmap/tools/install_fantasia_low_memory.py --mods "/path/to/Transport Fever 2/mods"
+```
+
+Linux requires the explicit directory. Enable Fantasia and the low-memory mod
+below it; reuse is automatic only above 32768² square metres. Use the same
+command with `--remove` to uninstall. This is separate from the multiplayer
+package. See [installation and validation](UPSTREAM_dev_ba95f609.md); native
+rendered terrain and memory savings have not been measured in this integration.
