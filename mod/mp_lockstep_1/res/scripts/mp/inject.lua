@@ -57,7 +57,8 @@ end
 K.ACTIONS_OFF_BEHIND = CM.MAX_LEAD or 15
 K.ACTIONS_ON_BEHIND = 2
 K.ACTIONS_OFF_ALWAYS = { CONXP = true, CONUP = true, CDEMO = true, SETDATE = true, CALSPEED = true,
-                         CMNEW = true, CMSWITCH = true, CMDEL = true, CMPW = true, CMNAME = true, CMOPEN = true }
+                         CMNEW = true, CMSWITCH = true, CMDEL = true, CMPW = true, CMNAME = true, CMOPEN = true,
+                         CMCOLOR = true }
 K.ACTIONS_OFF_ARMED = { ROADE = true, VBUY = true, VREPL = true, VSELL = true, VDEPOT = true, VLINE = true,
                         VREV = true, VSTOP = true, LUPDATE = true, LDELETE = true, VNAME = true, VCOLOR = true,
                         STOPX = true, STOPXDEL = true, TERRAINCAP = true, ASSETCAP = true }
@@ -104,6 +105,10 @@ end
 
 function CM.pollInject()
 	if not K.INJECT_FILE then return end
+	-- Companies: until this game's CMJOIN has landed (and its switch is done) no
+	-- machine knows which company our actions are for. The lines stay in the file
+	-- and are read once it has (companies.lua CM.cmHoldActions).
+	if CM.cmHoldActions and CM.cmHoldActions() then return end
 	local data, newOff = CM.readFrom(K.INJECT_FILE, CM.injectOffset)
 	CM.injectOffset = newOff
 	local carry = CM.injectCarry
@@ -195,45 +200,18 @@ function CM.pollInject()
 			-- A capture whose local build was CANCELLED must always be replayed,
 			-- peer or no peer -- dropping it deletes the player's own work.
 			if not CM.peerSeen and (CM.lastArmed or 0) == 0
-			   and o ~= "EVAL" and o ~= "HEAL" and o ~= "DROPNEXT" and o ~= "SPEEDBTN" and o ~= "SPEEDSET" and o ~= "SETDATE" and o ~= "CALSPEED" and o ~= "CMNEW" and o ~= "CMSWITCH" and o ~= "CMDEL" and o ~= "CMPW" and o ~= "CMNAME" and o ~= "CMOPEN" then
+			   and o ~= "EVAL" and o ~= "HEAL" and o ~= "DROPNEXT" and o ~= "SPEEDBTN" and o ~= "SPEEDSET" and o ~= "SETDATE" and o ~= "CALSPEED" and o ~= "CMNEW" and o ~= "CMSWITCH" and o ~= "CMDEL" and o ~= "CMPW" and o ~= "CMNAME" and o ~= "CMOPEN" and o ~= "CMCOLOR" then
 				CM.soloDrop(line)
 				return
 			end
 
 			-- ROADN n x0 y0 x1 y1 ...   (written by slice_hook from a captured
 			-- player build; carries every tessellated node)
-			if o == "CMNEW" or o == "CMSWITCH" or o == "CMDEL" or o == "CMPW" then
-				-- the in-game company row (GUI state) asked for a company command:
-				--   CMNEW [password]   CMSWITCH cid [password]   CMDEL cid [password]   CMPW cid [password]
-				-- the clear text stays here; only its salted hash goes on the wire
-				local cid, pwAt = tonumber(w[2]), 3
-				if o == "CMNEW" then cid = CM.cmNextId(); pwAt = 2 end
-				local pw = table.concat(w, " ", pwAt)
-				-- not while somebody is still loading in (companies.lua CM.cmLoadingPlayers)
-				local loading = (o ~= "CMPW" and CM.cmLoadingPlayers) and CM.cmLoadingPlayers() or {}
-				if #loading > 0 then
-					CM.cmNote(CM.cmLoadingNote(loading))
-					log("company: " .. o .. " refused -- " .. CM.cmLoadingNote(loading))
-				elseif cid then
-					CM.scheduleLocal(o, { cid = cid, sw = (o == "CMNEW") and 1 or nil, pw = CM.cmHashPw(cid, pw) or "-" })
-					log("company: requested " .. o .. " " .. cid .. (pw ~= "" and " [with password]" or ""))
-				end
-			elseif o == "CMOPEN" then
-				-- CMOPEN who on   -- who = * or a company id; on = 1/0: who may stop at MY stations
-				local who, on = tostring(w[2] or "*"), tonumber(w[3]) == 1 and 1 or 0
-				CM.cmEnsure()
-				if CM.cmMyCompany and (who == "*" or tonumber(who)) then
-					CM.scheduleLocal("CMOPEN", { cid = CM.cmMyCompany, who = who, on = on })
-					log(string.format("company: requested CMOPEN %s %d (company %d's stations)", who, on, CM.cmMyCompany))
-				end
-			elseif o == "CMNAME" then
-				-- CMNAME cid the company's name...   (spaces allowed; travels percent-escaped)
-				local cid = tonumber(w[2])
-				local name = table.concat(w, " ", 3)
-				if cid then
-					CM.scheduleLocal("CMNAME", { cid = cid, name = CM.escName(name) })
-					log(string.format("company: requested CMNAME %d %q", cid, name))
-				end
+			if o == "CMNEW" or o == "CMSWITCH" or o == "CMDEL" or o == "CMPW" or o == "CMNAME" or o == "CMCOLOR" or o == "CMOPEN" then
+				-- the Multiplayer window's COMPANIES tab (GUI state) asked for a company
+				-- change: companies.lua CM.cmRequest checks it, hashes any password (the
+				-- clear text stays here) and schedules the command
+				CM.cmRequest(w)
 			elseif o == "HEAL" then
 				-- Manual repair: rejoin a road at x,y if a scar from a replayed
 				-- split is all that is left there. Same rules as the sweep.

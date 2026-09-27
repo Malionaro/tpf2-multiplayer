@@ -170,12 +170,27 @@ and that company pays for them. Another company cannot bulldoze them, or replace
 own stop on the same side of the road; the game tells you whose stop it is. Stops placed before this
 version keep whatever owner each game gave them.
 
-In game, the **companies** section of the Multiplayer window shows your company's colour and
-name. Pick a company from the dropdown and **switch to it** to play that company instead of yours,
-**new company** to start a fresh one, and use the **company password** field with **set on mine**
-to lock yours (switching into a locked company needs its password). A company is named in the
-game's own company window; until then it is named after the player who founded it: "<player>'s
-company", then "<player>'s 2nd company" and so on, whoever plays it now.
+In game, the **companies** tab of the Multiplayer window lists every company with its colour,
+who plays it and whether it is locked; yours is first. Click a company to select it:
+
+- **Switch to it** plays that company instead of yours (a locked company asks for its password
+  first). Several players may play one company together.
+- **Delete...** deletes it: choose which company takes over everything it owns, its money and its
+  loan, then **Delete now**. Nobody may be playing it, and a locked one needs its password.
+- **Allow** / **Deny** decides whether its vehicles may stop at your stations.
+
+**New company** opens a form: a name, a colour, whether the company's new vehicles are painted in
+its colour, and an optional password. **Your company settings** renames your company, changes its
+colour, turns the vehicle paint on or off (turning it on repaints the company's vehicles), sets or
+removes the password, and opens or closes your stations to everyone. The game's own company window
+renames the company too. An unnamed company is named after the player who founded it:
+"<player>'s company", then "<player>'s 2nd company" and so on.
+
+Your game remembers who plays which company by player (your Steam account, or your lobby name
+without Steam), not by lobby position, so a saved game gives everyone their own company back
+whoever hosts it. A save from before this version is handed out once as players join: the host
+gets the company they played, everyone else theirs where it is clear; the companies tab says so,
+and anyone who got the wrong one can switch to theirs.
 
 ### AutoSig2
 

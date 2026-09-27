@@ -119,5 +119,9 @@ function data()
 			backgroundColor = { r, g, b, 0.85 },
 		})
 	end
+	-- the colour the COMPANIES tab has chosen (companies_gui.lua): its swatch keeps
+	-- the palette background and shows an X in white (!mpCoN paints text and
+	-- background alike, so a plain mark would vanish). After the loop, so it wins.
+	a("TextView!mpCoPick", { color = { 1, 1, 1, 1 }, fontSize = 13 })
 	return result
 end

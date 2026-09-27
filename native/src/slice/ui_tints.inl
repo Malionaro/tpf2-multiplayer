@@ -117,9 +117,11 @@ static const uintptr_t RVA_GET_PLAYEROWNED  = 0x472900;   // GetComponentPtr<Pla
 static const uint8_t ICON_DRAW_EXPECT[5] = { 0xE8, 0xD8, 0xD2, 0xFF, 0xFF };
 static bool g_iconColorOn = false;
 
-// pid -> company id, from mp_company_perms.txt ("pid <playerEntity> <companyId>"),
-// cached 2 s. 0 = unknown (coop, or a pid with no company). Its own cache, so it
-// never disturbs SharedStationsPermitted's.
+// pid -> the company's TINT: its palette index (the colour the company chose), from
+// mp_company_perms.txt ("pid <playerEntity> <companyId> [<paletteIndex>]"), else its
+// company id; cached 2 s. 0 = unknown (coop, or a pid with no company). Every caller
+// only colours with it (the !mpCoN / !mpWinCoN classes are palette indices). Its own
+// cache, so it never disturbs SharedStationsPermitted's.
 static int IconCompanyOfPid(int pid)
 {
     static ULONGLONG last = 0;
@@ -136,8 +138,11 @@ static int IconCompanyOfPid(int pid)
             if (f) {
                 char line[160];
                 while (fgets(line, sizeof(line), f)) {
-                    int a = 0, b = 0;
-                    if (sscanf(line, "pid %d %d", &a, &b) == 2 && n < 256) { pids[n] = a; cids[n] = b; n++; }
+                    // "pid <player> <company> [<palette index>]": the index is the colour
+                    // the company chose (2026-09-27); a file without it tints by company id
+                    int a = 0, b = 0, c = 0;
+                    const int got = sscanf(line, "pid %d %d %d", &a, &b, &c);
+                    if (got >= 2 && n < 256) { pids[n] = a; cids[n] = (got == 3 && c >= 1 && c <= 200) ? c : b; n++; }
                 }
                 fclose(f);
             }
@@ -1045,4 +1050,4 @@ static void InstallStationIconColor()
     g_stnIconColorOn = true;
     Log("[stationicon] installed: HUD station/depot icons washed the owner's company colour "
         "(hook at rva=%llx)\n", (unsigned long long)RVA_ICON_STN_HOOK);
-}
+}

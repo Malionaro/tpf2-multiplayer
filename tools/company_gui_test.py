@@ -1,0 +1,206 @@
+"""Offline check (Lua 5.2): the COMPANIES tab (mp/companies_gui.lua) against a fake
+api.gui, fed with the dash lines a real registry writes (company_harness).
+
+The tab is built once and refreshed; the checks click its buttons and read what
+lands in the inject file -- the only thing the GUI state can do:
+  - one row per company, yours first, with its colour class, who plays it, [locked]
+  - selecting a row survives a refresh (the old ComboBox reset it)
+  - SWITCH TO IT / a locked company's password / DELETE... with the company that
+    takes over / NEW COMPANY with name, colour, paint and password / the settings:
+    rename, colour, vehicle paint on/off, password set/remove, station access
+  - the note shows the sim's last word; an older save's import note shows
+
+    python tools/company_gui_test.py
+"""
+import os
+
+import lupa.lua52 as lupa
+
+from company_harness import check, fails, Machine, Session, TOWN
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MP = os.path.join(REPO, "mod", "mp_lockstep_1", "res", "scripts", "mp")
+GUI = open(os.path.join(MP, "companies_gui.lua"), encoding="utf-8").read()
+COMP = open(os.path.join(MP, "companies.lua"), encoding="utf-8").read()
+SHARED = open(os.path.join(MP, "shared_infra.lua"), encoding="utf-8").read()
+
+# a session to draw: Ada (a) plays Ada's company, Bob (b) Bob's, plus a locked "Vault"
+ROSTER = {"a": "Ada", "b": "Bob"}
+A = Machine("a", "7656100000000001", "Ada", ROSTER, chip=1)
+B = Machine("b", "7656100000000002", "Bob", ROSTER, chip=2)
+for m in (A, B):
+    m.world({100: {"balance": 1000}}, TOWN, 100)
+    m.boot()
+    m.join()
+s = Session([A, B])
+s.pump()
+s.request(B, "CMNEW 7 1 Vault")
+s.pump()
+vault = B.cm().cmMyCompany
+s.request(B, f"CMPW {vault} x")
+s.pump()
+s.request(B, "CMSWITCH 2")
+s.pump()
+DASH = A.T.dash()
+
+FAKE_GUI = r'''
+local GUI, COMP, SHARED, BASE = ...
+local W = { all = {} }
+local function widget(kind, text)
+  local w = { kind = kind, text = text or "", visible = true, classes = {}, items = {} }
+  W.all[#W.all + 1] = w
+  function w:setText(t) self.text = t end
+  function w:getText() return self.text end
+  function w:setStyleClassList(c) self.classes = c end
+  function w:setVisible(v) self.visible = v end
+  function w:setMinimumSize() end
+  function w:setMaximumSize() end
+  function w:setLayout(l) self.layout = l end
+  function w:addItem(x) self.items[#self.items + 1] = x end
+  function w:removeItem(x) for i, y in ipairs(self.items) do if y == x then table.remove(self.items, i) end end end
+  function w:onClick(fn) self.click = fn end
+  function w:onIndexChanged(fn) self.changed = fn end
+  function w:setSelected(i) self.selected = i end
+  return w
+end
+api = { gui = {
+  comp = {
+    TextView = { new = function(t) return widget("TextView", t) end },
+    Button = { new = function(tv) local b = widget("Button"); b.tv = tv; return b end },
+    TextInputField = { new = function() return widget("Input", "") end },
+    ComboBox = { new = function() return widget("ComboBox") end },
+    Component = { new = function(name) local c = widget("Component"); c.name = name; return c end },
+  },
+  layout = { BoxLayout = { new = function() return widget("Layout") end } },
+  util = { Size = { new = function() return {} end } },
+} }
+game = {}
+local function esc(s) return (tostring(s or ""):gsub("[^%w%-%._~]", function(c) return string.format("%%%02X", c:byte()) end)) end
+local function unesc(s) return (tostring(s or ""):gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)) end
+package.preload["mp.shared_infra"] = function() return assert(load(SHARED, "@shared_infra.lua"))() end
+local K = { INSTANCE = "a", BASE = BASE, IDENTITY_FILE = BASE .. "none" }
+local CM = { ticks = 0, escName = esc, unescName = unesc }
+assert(load(COMP, "@companies.lua"))()(CM, K, function() end)
+assert(load(GUI, "@companies_gui.lua"))()(CM, K, function() end)
+local T = { W = W, CM = CM }
+local D, box = {}, widget("Layout")
+T.D = D
+CM.coGuiBuild(D, box)
+local tick = 0
+function T.refresh(dash)
+  local kv = {}
+  for line in dash:gmatch("[^\n]+") do
+    local k, v = line:match("^(%w+)=(.*)$")
+    if k == "co" then kv.coList = kv.coList or {}; kv.coList[#kv.coList + 1] = v elseif k then kv[k] = v end
+  end
+  tick = tick + 1
+  CM.coGuiRefresh(D, kv, tick)
+end
+function T.button(label)
+  for _, w in ipairs(W.all) do if w.kind == "Button" and w.tv and w.tv.text == label then return w end end
+end
+function T.click(label) local b = T.button(label); assert(b, "no button " .. label); b.click() end
+function T.clickSwatch(prefix, idx)
+  local tv = D[prefix .. "ColorTv"][idx]
+  for _, w in ipairs(W.all) do if w.kind == "Button" and w.tv == tv then w.click(); return true end end
+  return false
+end
+function T.injected()
+  local f = io.open(BASE .. "lockstep_inject_a.txt", "r")
+  if not f then return "" end
+  local t = f:read("*a"); f:close(); os.remove(BASE .. "lockstep_inject_a.txt")
+  return t
+end
+function T.rows()
+  local out = {}
+  for i, r in ipairs(D.coRows) do
+    if r.c.visible then out[#out + 1] = r.tv.text .. " | " .. r.info.text .. " | " .. tostring(r.sw.classes[1]) end
+  end
+  return table.concat(out, "\n")
+end
+return T
+'''
+
+L = lupa.LuaRuntime(unpack_returned_tuples=True)
+T = L.execute(FAKE_GUI, GUI, COMP, SHARED, A.dir.replace("\\", "/") + "/")
+T.refresh(DASH)
+rows = T.rows()
+print(rows)
+lines = rows.split("\n")
+check("one row per company", len(lines) == 3, str(len(lines)))
+check("yours first, selected, with its colour", lines[0].startswith("> Ada's company | yours") and "mpCo" in lines[0], lines[0])
+check("Bob's row says who plays it", "Bob's company" in rows and "playing: Bob" in rows, rows)
+check("a locked company says so", "Vault" in rows and "[locked]" in rows, rows)
+check("your company's name is shown", "Ada's company" in T.D.coNameText.text, T.D.coNameText.text)
+
+# select Bob's row, refresh: the selection stays
+bob_row = next(i for i in range(1, 4) if "Bob's company" in T.D.coRows[i].tv.text)
+T.D.coRows[bob_row].btn.click()
+T.refresh(DASH)
+check("a selected row stays selected across a refresh", T.D.coSel == 2 and T.D.coRows[bob_row].tv.text.startswith("> "), str(T.D.coSel))
+check("the actions for another company show", T.D.coSelActions.visible and T.D.coSelOpenRow.visible)
+check("no password field for an open company", not T.D.coSelPwRow.visible)
+T.click("SWITCH TO IT")
+check("SWITCH TO IT asks for that company", T.injected() == "CMSWITCH 2\n")
+T.click("ALLOW")
+check("its vehicles at your stations: allow", T.injected() == "CMOPEN 2 1\n")
+
+# the locked company: its password goes with the switch
+vault_row = next(i for i in range(1, 4) if "Vault" in T.D.coRows[i].tv.text)
+T.D.coRows[vault_row].btn.click()
+T.refresh(DASH)
+check("a locked company asks for its password", T.D.coSelPwRow.visible)
+T.D.coSelPwInput.text = "x"
+T.click("SWITCH TO IT")
+check("... which goes with the switch, and the field is cleared", T.injected() == f"CMSWITCH {vault} x\n" and T.D.coSelPwInput.text == "")
+
+# delete it into Bob's company
+T.click("DELETE...")
+T.refresh(DASH)
+check("DELETE... opens the confirmation", T.D.coDelBox.visible and "Delete Vault?" in T.D.coDelText.text, T.D.coDelText.text)
+combo = T.D.coDelCombo
+check("the takeover choice lists the other companies", len(list(combo["items"].values())) == 2, str(list(combo["items"].values())))
+combo.changed(1)       # the second entry
+into = T.D.coDelInto
+T.D.coSelPwInput.text = "x"
+T.click("DELETE NOW")
+check("DELETE NOW names the company that takes over", T.injected() == f"CMDEL {vault} {into} x\n" and into in (1, 2))
+
+# a new company
+T.click("NEW COMPANY")
+T.refresh(DASH)
+check("NEW COMPANY opens its form", T.D.coNewBox.visible and not T.D.coSetBox.visible)
+T.D.coNewName.text = "Blue Line"
+# pick colour 5 by clicking its swatch button
+T.clickSwatch("coNew", 5)
+T.click("VEHICLES IN COMPANY COLOUR: ON")
+T.refresh(DASH)
+check("the chosen colour is marked", T.D.coNewColorTv[5].text == " X ")
+check("the paint toggle reads off", T.D.coNewPaintTv.text == "VEHICLES IN COMPANY COLOUR: OFF", T.D.coNewPaintTv.text)
+T.D.coNewPw.text = "pw 2"
+T.click("CREATE")
+check("CREATE sends colour, paint, the escaped name and the password", T.injected() == "CMNEW 5 0 Blue%20Line pw 2\n")
+
+# your company's settings
+T.click("YOUR COMPANY SETTINGS")
+T.refresh(DASH)
+check("the settings open", T.D.coSetBox.visible and not T.D.coNewBox.visible)
+T.D.coRename.text = "Ada Rail"
+T.click("RENAME")
+check("RENAME sends the name", T.injected() == "CMNAME 1 Ada Rail\n")
+T.clickSwatch("coSet", 3)
+check("a colour click sends CMCOLOR with the paint as it is", T.injected() == "CMCOLOR 1 3 1\n")
+T.click("VEHICLES IN COMPANY COLOUR: ON")
+check("the paint toggle turns it off", T.injected() == "CMCOLOR 1 1 0\n")
+T.D.coPwInput.text = "s3cret"
+T.click("SET")
+check("SET sends the password", T.injected() == "CMPW 1 s3cret\n")
+T.click("REMOVE")
+check("REMOVE clears it", T.injected() == "CMPW 1\n")
+T.click("DENY EVERYONE")
+check("station access for everyone", T.injected() == "CMOPEN * 0\n")
+check("the station access line", T.D.coOpenText.text == "Your stations are open to: everyone", T.D.coOpenText.text)
+check("the note is the sim's last word", T.D.coNote.text.strip() != "")
+
+print("FAILED: " + ", ".join(fails) if fails else "ALL PASS: the COMPANIES tab shows the registry and asks for the right things")
+raise SystemExit(1 if fails else 0)
