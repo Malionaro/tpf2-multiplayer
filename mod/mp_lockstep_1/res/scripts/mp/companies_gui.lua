@@ -266,8 +266,10 @@ function CM.coGuiBuild(D, box)
 	D.coNameText = CM.coGuiText("")
 	D.coSetToggle, D.coSetToggleTv = CM.coGuiButtonTv("Settings", function() D.coSetOpen = not D.coSetOpen; D.coNewOpen = false end)
 	V:addItem(CM.coGuiBox({ D.coSwMine, D.coNameText, D.coSetToggle }, "mpCompanyMine"))
+	-- the note about an imported older save, until OK (or until every company has its player)
 	D.coMigText = CM.coGuiText("", "mpDashAlert")
-	V:addItem(D.coMigText)
+	D.coMigBox = CM.coGuiBox({ D.coMigText, CM.coGuiButton("OK", function() D.coMigSeen = D.coMigShown end) }, "mpCompanyMigrated")
+	V:addItem(D.coMigBox)
 	-- your company's settings (hidden until SETTINGS)
 	D.coRename = CM.coGuiInput(220)
 	D.coPaintBtn, D.coPaintTv = CM.coGuiButtonTv("Paint vehicles: on", function()
@@ -437,8 +439,9 @@ function CM.coGuiRefresh(D, kv, guiTick)
 	CM.coGuiSetText(D, "mineName", D.coNameText, " " .. mineText .. "   ")
 	CM.coGuiShow(D.coSetToggle, me ~= nil)
 	CM.coGuiSetText(D, "setToggle", D.coSetToggleTv, D.coSetOpen and "CLOSE" or "SETTINGS")
-	CM.coGuiSetText(D, "mig", D.coMigText, CM.coGuiWrap(st.migrated or ""))
-	CM.coGuiShow(D.coMigText, st.migrated ~= "")
+	D.coMigShown = st.migrated
+	CM.coGuiSetText(D, "mig", D.coMigText, CM.coGuiWrap(st.migrated or "", 46))
+	CM.coGuiShow(D.coMigBox, st.migrated ~= "" and st.migrated ~= D.coMigSeen)
 	-- the selection survives every refresh; a deleted company falls back to yours
 	if not D.coSel or not st.byId[D.coSel] then D.coSel = st.mine end
 	-- the rows

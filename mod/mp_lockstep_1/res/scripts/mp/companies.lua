@@ -1311,6 +1311,21 @@ function CM.cmExecJoin(c, o)
 		end
 	end
 	co.members[key] = cid
+	-- THE OLDER SAVE IS HANDED OUT (2026-09-27: its note never went away, and the
+	-- legacy record rode along in every later save). Once every company has a
+	-- player the claims are done: the record goes, on every machine alike (members
+	-- are replicated), and with it the note.
+	if co.legacy then
+		local held = {}
+		for _, c2 in pairs(co.members) do held[c2] = true end
+		local open = false
+		for _, c2 in ipairs(CM.cmIds()) do if not held[c2] then open = true end end
+		if not open then
+			co.legacy = nil
+			CM.cmMigrated = nil
+			CM.cmLog("CM: every company of the older save has its player -- the import is done")
+		end
+	end
 	CM.cmRefreshDerived()
 	CM.cmEnsurePids()
 	CM.cmNote(string.format("%s joined: %s", name, how))

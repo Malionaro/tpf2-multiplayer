@@ -267,5 +267,17 @@ T.click("CLOSE TO ALL")
 check("CLOSE TO ALL closes them", T.injected() == "CMOPEN * 0\n")
 check("the note is the sim's last word", T.D.coNote.text.strip() != "")
 
+# the note about an imported older save: shown until OK, and it fits the window
+MIG = "This save is from an older version: companies are handed out once as players join. If you got the wrong one, switch to yours."
+DASH_MIG = "\n".join(l for l in DASH.splitlines() if not l.startswith("comig=")) + "\ncomig=" + T.CM.escName(MIG) + "\n"
+T.refresh(DASH_MIG)
+check("an imported save's note is shown", T.D.coMigBox.visible and "older version" in T.D.coMigText.text)
+check("... broken into lines that fit beside its OK", max(len(l) for l in T.D.coMigText.text.split("\n")) <= 46, T.D.coMigText.text)
+T.click("OK")
+T.refresh(DASH_MIG)
+check("OK hides it", not T.D.coMigBox.visible)
+T.refresh(DASH)
+check("no note, no box", not T.D.coMigBox.visible)
+
 print("FAILED: " + ", ".join(fails) if fails else "ALL PASS: the COMPANIES tab shows the registry and asks for the right things")
 raise SystemExit(1 if fails else 0)

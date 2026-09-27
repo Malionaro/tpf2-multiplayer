@@ -69,8 +69,9 @@ for order in (["b", "a"], ["a", "b"]):
         mach.boot()
         mach.join()
     s = Session([A, B])
-    s.pump(order)
     tag = "older save, other host, joins " + "/".join(order)
+    check(f"{tag}: the menu says the save was imported", "older version" in A.T.parseDash().migrated)
+    s.pump(order)
     check(f"{tag}: Kaguya (host) plays her company 2", A.T.companyOf("a") == 2 and A.cm().cmMyCompany == 2, f"co{A.T.companyOf('a')}")
     check(f"{tag}: Friend plays his company 1", B.T.companyOf("b") == 1 and B.cm().cmMyCompany == 1, f"co{B.T.companyOf('b')}")
     check(f"{tag}: Kaguya's machine: her buses are hers", A.holdings(2)[0] == "5001,5002", A.holdings(2)[0])
@@ -78,7 +79,10 @@ for order in (["b", "a"], ["a", "b"]):
           str(B.holdings(1)))
     check(f"{tag}: Friend's human entity now holds his company", B.T.W.players[100].balance == 5000000)
     same_company_state(s, tag, [1, 2])
-    check(f"{tag}: the menu says the save was imported", "older version" in A.T.parseDash().migrated)
+    check(f"{tag}: once every company has its player the import is done and the note goes",
+          A.T.parseDash().migrated == "" and B.T.parseDash().migrated == "" and A.cm().co.legacy is None and B.cm().co.legacy is None,
+          repr(A.T.parseDash().migrated))
+    check(f"{tag}: ... and later saves no longer carry it", "legacy" not in str(dict(A.cm().cmSaveState() or {})))
     check(f"{tag}: the claimed companies are named after their players",
           A.cm().cmNameOf(2) == "Kaguya's company" and B.cm().cmNameOf(1) == "Friend's company", f"{A.cm().cmNameOf(2)} / {B.cm().cmNameOf(1)}")
 
