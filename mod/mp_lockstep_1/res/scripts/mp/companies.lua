@@ -576,6 +576,15 @@ end
 function CM.playerNameOf(letter)
 	return CM.playerNames[letter] or letter
 end
+-- save() runs every frame in the GUI state: re-read the roster at most every
+-- two seconds, so a hot joiner is named in the next save without a file read
+-- per frame
+function CM.cmFreshPlayerNames()
+	local now, at = os.clock(), CM.cmNamesAt
+	if type(at) == "number" and now >= at and now - at < 2 then return end
+	CM.cmNamesAt = now
+	pcall(CM.readPlayerNames)
+end
 -- Players still loading in (2026-09-16): the menu DLL writes mp_loading.txt
 -- ("letter=name=stage" per player receiving the save, loading the world or
 -- catching up; empty once everyone is in). A company switch, creation or
@@ -640,7 +649,7 @@ CM.cmFoundedCount = {}   -- letter -> companies founded so far (the lobby's coun
 CM.cmLobbyOrigin = nil   -- letter -> company, as the lobby handed them out
 function CM.cmFounderOf(cid)
 	local f = type(CM.cmFounded) == "table" and CM.cmFounded[cid]
-	if f then return f.o, f.n end
+	if f then return f.o, f.n, f.nm end
 	local lowest
 	if type(CM.cmLobbyOrigin) == "table" then
 		for o, c in pairs(CM.cmLobbyOrigin) do if c == cid and (not lowest or o < lowest) then lowest = o end end
@@ -662,7 +671,8 @@ function CM.cmRecordFounder(cid, o)
 	end
 	count = count + 1
 	CM.cmFoundedCount[o] = count
-	CM.cmFounded[cid] = { o = o, n = count }
+	local nm = type(CM.playerNames) == "table" and CM.playerNames[o] or nil
+	CM.cmFounded[cid] = { o = o, n = count, nm = nm }
 end
 function CM.cmOrdinal(n)
 	n = tonumber(n) or 1
@@ -680,8 +690,9 @@ function CM.cmNameOf(cid)
 	if not CM.cmName[cid] then
 		if CM.playerNamesRead ~= true then CM.playerNamesRead = true; pcall(CM.readPlayerNames) end
 	end
-	local o, n = CM.cmFounderOf(cid)
-	local founderName = o and type(CM.playerNames) == "table" and CM.playerNames[o] or nil
+	-- the founder's name as recorded, else whoever holds the founder's letter now
+	local o, n, nm = CM.cmFounderOf(cid)
+	local founderName = nm or (o and type(CM.playerNames) == "table" and CM.playerNames[o]) or nil
 	return CM.cmDisplayName(cid, CM.cmName[cid], founderName, n)
 end
 -- The game's finances / company windows show the player ENTITY's NAME. Keep
@@ -938,7 +949,8 @@ end
 -- the lobby file: the entity ids are valid on every machine that loads this
 -- save (the entities are in it), and the human player of the save IS the
 -- company that saved it, so each machine then hotseat-swaps to its own
--- company (its old one if the saved map knows its letter, else the lobby's).
+-- company (its old one if the save knows the player by name -- by letter for
+-- a save from before 2026-09-27 -- else the lobby's).
 function CM.cmSaveState()
 	if CM.cmMode ~= "companies" or not CM.cmMyCompany then
 		-- NOT in companies mode here, but the save this world came from had
@@ -957,6 +969,17 @@ function CM.cmSaveState()
 	for i, cid in ipairs(CM.cmRoster or {}) do st.roster[i] = cid end
 	for o, cid in pairs(CM.cmOriginCompany or {}) do st.origin[o] = cid end
 	st.origin[K.INSTANCE] = CM.cmMyCompany
+	-- WHO held each letter (2026-09-27). Letters belong to one lobby: the host is
+	-- always a, joiners take b, c ... in join order. When the other player hosted
+	-- the next session, the letter map handed every player the other's company
+	-- on load (the host got the empty one, the joiner the starting money and
+	-- every vehicle). cmApplySaved maps the companies back by these names.
+	CM.cmFreshPlayerNames()
+	st.who = {}
+	for o in pairs(st.origin) do
+		local n = type(CM.playerNames) == "table" and CM.playerNames[o] or nil
+		if type(n) == "string" and n ~= "" then st.who[o] = n end
+	end
 	for cid, h in pairs(CM.cmPw or {}) do st.pw[tostring(cid)] = h end
 	for cid, pid in pairs(CM.cmCompanyPid or {}) do st.pid[tostring(cid)] = pid end
 	st.names = {}
@@ -965,14 +988,31 @@ function CM.cmSaveState()
 	for cid in pairs(CM.cmOpen or {}) do st.open[tostring(cid)] = CM.cmOpenCode(cid) end
 	st.founded, st.foundedCount = {}, {}
 	for _, cid in ipairs(CM.cmRoster or {}) do
-		local o, n = CM.cmFounderOf(cid)
-		if o then st.founded[tostring(cid)] = { o = o, n = n } end
+		local o, n, nm = CM.cmFounderOf(cid)
+		nm = nm or (o and type(CM.playerNames) == "table" and CM.playerNames[o]) or nil
+		if o then st.founded[tostring(cid)] = { o = o, n = n, nm = nm } end
 	end
 	for o, n in pairs(CM.cmFoundedCount or {}) do st.foundedCount[o] = n end
 	return st
 end
 function CM.cmLoadState(st)
 	if type(st) == "table" and st.mode == "companies" then CM.cmSaved = st; CM.cmCarried = st end
+end
+-- name -> company from a save's letter map and the names it recorded for the
+-- letters; nil when the save names nobody. A name the save gives two different
+-- companies is left out: it cannot say which one is that player's.
+function CM.cmSavedCompanyByName(sv)
+	if type(sv.who) ~= "table" or next(sv.who) == nil then return nil end
+	local out, twice = {}, {}
+	for o, n in pairs(sv.who) do
+		local cid = sv.origin and tonumber(sv.origin[o])
+		if cid and type(n) == "string" and n ~= "" then
+			if out[n] and out[n] ~= cid then twice[n] = true end
+			out[n] = cid
+		end
+	end
+	for n in pairs(twice) do out[n] = nil end
+	return out
 end
 function CM.cmApplySaved()
 	local sv = CM.cmSaved
@@ -998,17 +1038,41 @@ function CM.cmApplySaved()
 	for k, code in pairs(sv.open or {}) do if tonumber(k) then CM.cmOpenFromCode(tonumber(k), code) end end
 	CM.cmFounded, CM.cmFoundedCount = {}, {}
 	for k, f in pairs(sv.founded or {}) do
-		if type(f) == "table" and type(f.o) == "string" then CM.cmFounded[tonumber(k)] = { o = f.o, n = tonumber(f.n) or 1 } end
+		if type(f) == "table" and type(f.o) == "string" then
+			CM.cmFounded[tonumber(k)] = { o = f.o, n = tonumber(f.n) or 1, nm = type(f.nm) == "string" and f.nm ~= "" and f.nm or nil }
+		end
 	end
 	for o, n in pairs(sv.foundedCount or {}) do CM.cmFoundedCount[o] = tonumber(n) or 0 end
+	-- Which company each player of THIS session had: by name when the save
+	-- names its players, by letter only for a save from before 2026-09-27. A
+	-- player the save does not know keeps the lobby's chip. Every machine reads
+	-- the same save and the same mp_players.txt, so every machine answers alike.
+	pcall(CM.readPlayerNames)
+	local byName = CM.cmSavedCompanyByName(sv)
+	local function savedCid(o)
+		if byName then
+			local n = CM.playerNames[o]
+			return n and byName[n] or nil
+		end
+		return sv.origin and tonumber(sv.origin[o]) or nil
+	end
 	local want = CM.cmMyCompany   -- the lobby's chip for us (may be nil in coop)
-	if sv.origin and sv.origin[K.INSTANCE] then want = tonumber(sv.origin[K.INSTANCE]) end
+	local mineSaved = savedCid(K.INSTANCE)
+	if mineSaved then want = mineSaved end
 	if not want or not CM.cmRosterHas(want) then want = tonumber(sv.mine) end
-	for o, cid in pairs(sv.origin or {}) do if o ~= K.INSTANCE then CM.cmOriginCompany[o] = tonumber(cid) end end
+	if byName then
+		for o in pairs(CM.playerNames) do
+			if o ~= K.INSTANCE then local cid = savedCid(o); if cid then CM.cmOriginCompany[o] = cid end end
+		end
+	else
+		for o, cid in pairs(sv.origin or {}) do if o ~= K.INSTANCE then CM.cmOriginCompany[o] = tonumber(cid) end end
+	end
 	CM.cmMyCompany = tonumber(sv.mine)     -- the human entity is the saver's company right now
 	CM.cmLive = true
 	CM.cmReady = true
-	log(string.format("company: state restored from the save: %d companies, saver was co%d, we take co%d", #CM.cmRoster, tonumber(sv.mine), want))
+	log(string.format("company: state restored from the save: %d companies, saver was co%d, we take co%d (%s)", #CM.cmRoster, tonumber(sv.mine), want,
+		byName and ("by player name, " .. tostring(CM.playerNames[K.INSTANCE] or "unnamed") .. (mineSaved and "" or " not in the save: the lobby's chip"))
+		or "by lobby letter: the save names no players"))
 	-- THE WORLD MUST ANSWER FIRST (2026-09-22). This switch used to run on the
 	-- first tick after the load; on the 49,000-tile server world the entity
 	-- queries and the wallet read still answered nothing, so it moved "0 + 0
