@@ -1,5 +1,8 @@
-// descriptor_recycle_linux.h -- descriptor sets kept across pool resets while a
-// dedicated server renders nothing (dedicated_render=0).
+// descriptor_recycle.h -- descriptor sets kept across pool resets while a
+// dedicated server renders nothing (dedicated_render=0). Shared by the Linux
+// menu (overlay_vk_linux.cpp, the dispatcher slots) and the Windows one
+// (menu_hook.cpp, the hooked vkGetDeviceProcAddr); under Proton the Windows
+// game reaches the same lavapipe.
 //
 // WHY. The game resets its descriptor pools every frame and allocates ~260 sets
 // again. lavapipe backs each set with its own 4 KiB mapping of a memfd: an mmap
@@ -22,7 +25,7 @@
 //   - A failed allocation returns the spares it took and leaves every output
 //     VK_NULL_HANDLE, as the spec requires of the driver.
 #pragma once
-#include "../../third_party/vk/vulkan_core.h"
+#include "../third_party/vk/vulkan_core.h"
 #include <cstdint>
 #include <mutex>
 #include <unordered_map>

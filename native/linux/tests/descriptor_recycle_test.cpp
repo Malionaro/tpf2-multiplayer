@@ -1,7 +1,7 @@
-// descriptor_recycle_linux.h against a fake driver that tracks which sets each
+// descriptor_recycle.h against a fake driver that tracks which sets each
 // pool really holds, and refuses once a pool's capacity is reached.
 #define VK_NO_PROTOTYPES
-#include "descriptor_recycle_linux.h"
+#include "descriptor_recycle.h"
 #include <cassert>
 #include <map>
 #include <set>

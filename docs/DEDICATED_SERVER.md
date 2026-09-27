@@ -179,7 +179,7 @@ afternoon, measured three minutes after the world came up:
 lavapipe's churn was the game's descriptor pools: reset every frame, ~260 sets
 allocated again, each with its own 4 KiB memfd mapping (7,200 `mmap` and `munmap` a
 second). With `dedicated_render=0` no draw ever reads a set, so
-`descriptor_recycle_linux.h` keeps a reset pool's sets and hands them out again
+`native/src/descriptor_recycle.h` keeps a reset pool's sets and hands them out again
 (`dedicated_recycle_sets`, on by default). Measured on the server, world settled:
 
 - `mmap` 0 and `munmap` 17 in 10 s, from 78,000 and 77,700; 97% of sets reused, a

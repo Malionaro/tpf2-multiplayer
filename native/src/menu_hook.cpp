@@ -27,6 +27,7 @@
 #include <cwctype>
 #define VK_NO_PROTOTYPES
 #include "../third_party/vk/vulkan_core.h"
+#include "descriptor_recycle.h"
 #include "hook.h"
 #include "native_io.h"
 #include "native_control.h"
@@ -701,6 +702,7 @@ static int   g_flagDedAutosaveMin = 10;     // dedicated_autosave_min=<n>, 0-600
 static int   g_flagDedEmptySpeed = 1;       // dedicated_empty_speed=0..4: the world's speed while nobody else is in (0 = paused); dedicated_pause_empty=1 is 0
 static int   g_flagDedPort = 0;             // dedicated_port=<udp/tcp port> for the lobby (0 = the default 29471); a box that also runs the relay needs another
 static int   g_flagDedRender = 0;           // dedicated_render=0|1: 0 (default) submits no command buffers -- a software renderer then costs nothing; 1 draws (screenshots)
+static int   g_flagDedRecycleSets = 1;      // dedicated_recycle_sets=0|1: with render=0, a descriptor pool reset keeps its sets for the next frame (descriptor_recycle.h)
 static int   g_flagDedNoWsi = 0;            // dedicated_nowsi=0|1: 1 also answers acquire/present in the DLL, paced to 60 frames/s (opt-in: it crashed the engine on the VPS)
 static volatile LONG g_storedAge = -1, g_storedMax = -1;   // relay roster: age of the relay's stored world / how fresh counts as fresh
 static volatile LONG g_joinFreeze = 0;   // roster join_freeze: the lobby brings a late joiner in through a world sync (everyone reloads); this DLL takes no hot-join save (2026-09-16)
@@ -753,6 +755,8 @@ static void ReadFlags()
             if (!strcmp(v, "0")) g_flagDedEmptySpeed = 1; else if (!strcmp(v, "1")) g_flagDedEmptySpeed = 0;
         } else if (!strcmp(line, "dedicated_render")) {
             if (!strcmp(v, "0")) g_flagDedRender = 0; else if (!strcmp(v, "1")) g_flagDedRender = 1;
+        } else if (!strcmp(line, "dedicated_recycle_sets")) {
+            if (!strcmp(v, "0")) g_flagDedRecycleSets = 0; else if (!strcmp(v, "1")) g_flagDedRecycleSets = 1;
         } else if (!strcmp(line, "dedicated_nowsi")) {
             if (!strcmp(v, "0")) g_flagDedNoWsi = 0; else if (!strcmp(v, "1")) g_flagDedNoWsi = 1;
         } else if (!strcmp(line, "input_hold")) {
@@ -2045,6 +2049,45 @@ static VkResult VKAPI_CALL myQueryResults(VkDevice dev, VkQueryPool pool, uint32
     if (pData && dataSize) memset(pData, 0, dataSize);
     return VK_SUCCESS;
 }
+// DESCRIPTOR SETS ACROSS POOL RESETS (2026-09-27; native/src/descriptor_recycle.h).
+// Under Proton the no-render server's Vulkan is lavapipe, which maps 4 KiB per
+// descriptor set and unmaps it when the game resets the pool every frame: ~7,000
+// of each a second on a big world, measured on the native Linux server. The five
+// functions are wrapped as the game resolves them; whether the recycler is used is
+// decided once, at the first descriptor call, from whether all five were resolved.
+static dsrecycle::Real g_dsReal;
+static dsrecycle::Recycler* g_ds = nullptr;
+static volatile LONG g_dsDecided = 0;   // 0 undecided, 1 recycling, 2 pass-through
+static dsrecycle::Recycler* DsRecycler()
+{
+    LONG d = InterlockedCompareExchange(&g_dsDecided, 0, 0);
+    if (!d) {
+        static SRWLOCK lock = SRWLOCK_INIT;
+        AcquireSRWLockExclusive(&lock);
+        d = g_dsDecided;
+        if (!d) {
+            const bool all = g_dsReal.alloc && g_dsReal.free && g_dsReal.reset && g_dsReal.destroyPool && g_dsReal.destroyLayout;
+            if (all) g_ds = new (std::nothrow) dsrecycle::Recycler(g_dsReal, 600);   // lives as long as the process
+            d = g_ds ? 1 : 2;
+            Log(g_ds ? "[dedicated] descriptor sets kept across pool resets (dedicated_recycle_sets=0 turns it off)\n"
+                     : "[dedicated] descriptor set recycling unavailable: the game did not resolve all five functions\n");
+            InterlockedExchange(&g_dsDecided, d);
+        }
+        ReleaseSRWLockExclusive(&lock);
+    }
+    return d == 1 ? g_ds : nullptr;
+}
+static VkResult VKAPI_CALL myAllocSets(VkDevice d, const VkDescriptorSetAllocateInfo* i, VkDescriptorSet* out)
+{ auto* r = DsRecycler(); return r ? r->Allocate(d, i, out) : g_dsReal.alloc(d, i, out); }
+static VkResult VKAPI_CALL myFreeSets(VkDevice d, VkDescriptorPool p, uint32_t n, const VkDescriptorSet* sets)
+{ auto* r = DsRecycler(); return r ? r->Free(d, p, n, sets) : g_dsReal.free(d, p, n, sets); }
+static VkResult VKAPI_CALL myResetPool(VkDevice d, VkDescriptorPool p, VkDescriptorPoolResetFlags f)
+{ auto* r = DsRecycler(); return r ? r->Reset(d, p, f) : g_dsReal.reset(d, p, f); }
+static void VKAPI_CALL myDestroyPool(VkDevice d, VkDescriptorPool p, const VkAllocationCallbacks* a)
+{ auto* r = DsRecycler(); if (r) r->DestroyPool(d, p, a); else g_dsReal.destroyPool(d, p, a); }
+static void VKAPI_CALL myDestroyLayout(VkDevice d, VkDescriptorSetLayout l, const VkAllocationCallbacks* a)
+{ auto* r = DsRecycler(); if (r) r->DestroyLayout(d, l, a); else g_dsReal.destroyLayout(d, l, a); }
+
 static PFN_vkVoidFunction myGdpa(VkDevice dev, const char* name)
 {
     PFN_vkVoidFunction real = g_origGdpa(dev, name);
@@ -2069,6 +2112,13 @@ static PFN_vkVoidFunction myGdpa(VkDevice dev, const char* name)
         g_realPresent = (PFN_vkQueuePresentKHR)real; g_dev = dev;
         Log("[menu] intercepted vkQueuePresentKHR dev=%p real=%p\n", dev, real);
         return (PFN_vkVoidFunction)myPresent;
+    }
+    if (NoRender() && g_flagDedRecycleSets && !InterlockedCompareExchange(&g_dsDecided, 0, 0)) {
+        if (!strcmp(name, "vkAllocateDescriptorSets")) { g_dsReal.alloc = (PFN_vkAllocateDescriptorSets)real; return (PFN_vkVoidFunction)myAllocSets; }
+        if (!strcmp(name, "vkFreeDescriptorSets")) { g_dsReal.free = (PFN_vkFreeDescriptorSets)real; return (PFN_vkVoidFunction)myFreeSets; }
+        if (!strcmp(name, "vkResetDescriptorPool")) { g_dsReal.reset = (PFN_vkResetDescriptorPool)real; return (PFN_vkVoidFunction)myResetPool; }
+        if (!strcmp(name, "vkDestroyDescriptorPool")) { g_dsReal.destroyPool = (PFN_vkDestroyDescriptorPool)real; return (PFN_vkVoidFunction)myDestroyPool; }
+        if (!strcmp(name, "vkDestroyDescriptorSetLayout")) { g_dsReal.destroyLayout = (PFN_vkDestroyDescriptorSetLayout)real; return (PFN_vkVoidFunction)myDestroyLayout; }
     }
     if (strcmp(name, "vkGetDeviceQueue") == 0) {
         g_origGetQueue = (PFN_vkGetDeviceQueue)real; return (PFN_vkVoidFunction)myGetQueue;
@@ -4172,6 +4222,11 @@ static void DedicatedTick()
             Log("[dedicated] no-render: %ld submits, %ld command buffers dropped so far; %.1f frames/s (paced to %.0f)\n",
                 InterlockedCompareExchange(&g_noRenderSubmits, 0, 0), InterlockedCompareExchange(&g_noRenderCmdBufs, 0, 0), fps,
                 NoWsi() ? NORENDER_FPS : (double)g_flagDedFps);
+            if (g_ds) {
+                const auto st = g_ds->Snapshot();
+                Log("[dedicated] descriptor sets: %llu reused, %llu allocated, %llu real pool resets\n",
+                    (unsigned long long)st.reused, (unsigned long long)st.allocated, (unsigned long long)st.realResets);
+            }
         }
     }
     // THE AUTOSAVE PAUSES THE SESSION FIRST (2026-09-21). A forced autosave stops
