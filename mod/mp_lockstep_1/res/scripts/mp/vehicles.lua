@@ -556,6 +556,12 @@ function forgetVehicle(vid)
 	local key = CM.vehKeyOf[vid]
 	if key then vehIdOf[key] = nil; vehKeysGen = vehKeysGen + 1 end
 	CM.vehKeyOf[vid] = nil
+	-- ...and neither must "known": the next vehicle to reuse the id was skipped by
+	-- pollVehKeys and the bind hint, so its buy was dropped and it never got a key
+	-- (CM.forgetLine does the same for lines). primedVeh too, or a save vehicle's
+	-- "s:<id>" went on resolving to whatever now has that id.
+	knownVeh[vid] = nil
+	CM.primedVeh[vid] = nil
 end
 
 local function expectVehicle(key, depotChild, company, hint, bal0)
