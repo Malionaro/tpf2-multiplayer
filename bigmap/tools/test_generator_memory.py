@@ -108,7 +108,32 @@ def main():
     print(f'PASS: generator memory (redirect copy {served})')
 
 
+def check_diagnostics(dll):
+    # Exercise the actual embedded helper even without Workshop resources.
+    src = b"function run(result, params)\n\t\treturn result\nend\n"
+    lines = []
+    L = LuaRuntime(unpack_returned_tuples=True)
+    L.globals().print = lambda *a: lines.append(' '.join(str(x) for x in a))
+    L.execute(patch(dll, src).decode('utf-8'))
+    L.execute("""
+        r = {layers={{type="FUTURE", params={type="NEW", output="a"}}}}
+        assert(run(r, {mapSizeX=40960, mapSizeY=40960}) == r)
+        assert(r.layers[1].params.output == "a")
+    """)
+    assert lines == [
+        '[tpf2_bigmap] generator memory: 40960 x 40960 m, 1 layers over 1 buffer names',
+        '[tpf2_bigmap] terrain memory: layer 1 of 1 (FUTURE NEW) is not a known op; pipeline left unchanged'], lines
+    lines.clear()
+    L.execute("assert(run(r, {mapSizeX=32768, mapSizeY=32768}) == r)")
+    assert lines == ['[tpf2_bigmap] generator memory: 32768 x 32768 m, 1 layers over 1 buffer names (32 x 32 km or less: unchanged)'], lines
+    lines.clear()
+    L.execute("assert(run(r, nil) == r)")
+    assert lines == ['[tpf2_bigmap] generator memory: 0 x 0 m, 1 layers over 1 buffer names (32 x 32 km or less: unchanged)'], lines
+    print('PASS: embedded diagnostics, unknown-op refusal, boundary and absent dimensions')
+
+
 def check_generators(dll):
+    check_diagnostics(dll)
     if not FANTASIA.is_dir():
         print(f'SKIP: Fantasia Map Generator not found at {FANTASIA}')
         return
@@ -121,11 +146,13 @@ def check_generators(dll):
         before, _ = generate(src, 40)
         after, lines = generate(out, 40)
         x, y = t.verify(before, after)
-        assert lines == [f'[tpf2_bigmap] terrain memory: {x} -> {y} named buffers'], lines
+        n = len(t.indices(before['layers']))
+        assert lines == [f'[tpf2_bigmap] generator memory: 40960 x 40960 m, {n} layers over {x} buffer names',
+                         f'[tpf2_bigmap] terrain memory: {x} -> {y} named buffers'], lines
         assert y == t.lower_bound(before) and y <= 12, (y, t.lower_bound(before))
         small, _ = generate(src, 32)
         same, lines = generate(out, 32)
-        assert same == small and lines == [], (name, lines)
+        assert same == small and len(lines) == 1 and lines[0].endswith('(32 x 32 km or less: unchanged)'), (name, lines)
         print(f'{name:<42} 40 km: {x} -> {y} named buffers; 32 km: unchanged')
     return True
 

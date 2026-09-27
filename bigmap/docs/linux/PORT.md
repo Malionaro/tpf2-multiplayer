@@ -494,3 +494,11 @@ no additional mod is required; disable the old low-memory stand-in if present.
 All three climates preserve the 32 km pipeline and reduce 40 km symbolic
 buffer names to 10. Native terrain output and measured peak-memory savings
 remain unvalidated because the lab failed before game startup.
+
+## Fantasia diagnostics — dev 46ca48ef
+
+The shared text patch now appends the upstream generator diagnostic helper.
+Native Linux logs dimensions, layer and buffer-name counts before optimization,
+and the shared optimizer reports unknown operations and pinned-name refusals.
+The existing fopen route, byte guards and ABI are unchanged; no new engine
+site is needed. See the [integration and test record](../../../docs/linux/UPSTREAM_dev_46ca48ef.md).

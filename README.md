@@ -363,3 +363,7 @@ Fantasia terrain-buffer reuse into the native Big Maps plugin, enabled by
 `generator_memory=1`. No additional mod is needed. Offline checks cover all
 three climates; native rendered output and peak memory remain unmeasured.
 Version remains 0.7.0.7.
+
+The [dev `46ca48ef` integration](docs/linux/UPSTREAM_dev_46ca48ef.md) adds
+Fantasia generator size/layer/buffer diagnostics and optimizer refusal reasons
+to both native Linux and Windows. Version remains 0.7.0.7.

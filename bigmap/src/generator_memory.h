@@ -13,9 +13,11 @@
 // generator files in GENERATORS, in any mod's res\config\terrain_generators, is
 // served from a patched copy in %TEMP%\tpf2_bigmap: the one line
 // "\t\treturn result" of its updateFn becomes
-//     if <map area> > 32768^2 m^2 then result = <pass>.Optimize(result) end return result
-// and the pass itself (embedded from bigmap_memory.lua) is appended after the
-// last line, so every line number in the generator stays the same. Maps up to
+//     return _tpf2_bigmap_generate(result, params)
+// and the pass itself (embedded from bigmap_memory.lua) plus that helper are
+// appended after the last line, so every line number in the generator stays
+// the same. The helper prints the map size, layer and name counts to the game
+// log and runs the pass when the map area is over 32768^2 m^2. Maps up to
 // 32 x 32 km (128 x 128 tiles) run the generator exactly as shipped. A file
 // whose anchor is missing or repeated is served unchanged. The generator on
 // disk is never written; switching the plugin off (generator_memory=0) or
