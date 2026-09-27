@@ -541,3 +541,8 @@ archive and hosting guide, spreads shared construction checks across updates,
 and ports the resync hold fix to Linux: no ten-second deadline, game-local
 SDL gesture diagnostics, and focus-loss cleanup. Version remains 0.7.0.7.
 Offline regression tests cover these changes; no new live gameplay result is claimed.
+
+The [dev `3cc80874` integration](UPSTREAM_dev_3cc80874.md) records upstream merging
+the completed Linux ports through `cc0981bb` back into Windows history. Its
+source tree is identical to the previous Linux integration; runtime behavior
+and version 0.7.0.7 are unchanged. Lua now matches upstream without exceptions.
