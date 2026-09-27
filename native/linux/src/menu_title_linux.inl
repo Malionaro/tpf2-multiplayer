@@ -20,6 +20,8 @@ static void RenderTitleLocked(int w,int h) {
     const bool world=v.inGame;
     const bool recovery=g_uiState==3 || (g_uiState==2 && v.recoveryPresent);
     MwTitle(world?(g_uiState==1?"MULTIPLAYER - HOST SESSION":"MULTIPLAYER - SESSION"):g_uiState==1?"MULTIPLAYER":P().savePicker?"CHOOSE A SAVEGAME":"MULTIPLAYER - LOBBY");
+    if(!world && g_uiState==1)
+        TitleText(S(175),S(10),S(120),S(32),"v" TPF2MP_VERSION_STR,13,MW_DIM);
     if(world && !recovery) MwClose(w,4);
     else if(world && recovery && !v.worldIo) MwClose(w,87); // 83 remains Back to lobby
     if(g_uiState==1 && world) {
@@ -186,9 +188,10 @@ static void RenderTitleLocked(int w,int h) {
         }
     }
     const char* bridgeWhy=g_uiState==1?lobby::BridgeProblem():nullptr;
-    if(bridgeWhy)TitleText(pad,h-S(29),width,S(22),bridgeWhy,12,rgb(255,196,90));
-    else if(!v.transferDetail.empty())TitleText(pad,h-S(29),width,S(22),v.transferDetail,12,MW_DIM);
-    else MwStatus(w,h);
+    if(bridgeWhy)TitleText(pad,h-S(29),width-S(110),S(22),bridgeWhy,12,rgb(255,196,90));
+    else if(!v.transferDetail.empty())TitleText(pad,h-S(29),width-S(110),S(22),v.transferDetail,12,MW_DIM);
+    else MwStatus(w-S(110),h);
+    TitleText(w-S(135),h-S(29),S(110),S(22),"v" TPF2MP_VERSION_STR,12,MW_DIM,layer::kRight);
     if(!v.modsPrompt.empty()) {
         g_hitCount=0;layer::Rect(0,0,w,h,rgb(0,0,0),180);
         const int x=S(70),dw=w-S(140),y=(h-S(242))/2;

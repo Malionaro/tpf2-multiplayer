@@ -144,7 +144,15 @@ jobs:
           | **Windows** (Steam, game build 35924) | **[TpF2Multiplayer-Launcher-Windows-Setup.exe]($base/TpF2Multiplayer-Launcher-Windows-Setup.exe)** -- install it, then **Update & play** |
           | **Linux / Steam Deck** (the native game or Proton) | **[TpF2Multiplayer-Launcher-Linux.AppImage]($base/TpF2Multiplayer-Launcher-Linux.AppImage)** -- make it executable, run it, then **Update & play** |
 
-          The launcher installs this version and keeps it up to date. Manual install files (MSI, Linux package, Proton script, checksums) are in the [packages for $tag]($pkg). The two *Source code* archives at the bottom are the repository, not the mod. Everyone in a session needs the same version.
+          The launcher installs this version and keeps it up to date. Or install this version directly:
+
+          | You play on | Get this one file |
+          | --- | --- |
+          | **Windows** | [TpF2Multiplayer.msi]($base/TpF2Multiplayer.msi) -- close the game, run it |
+          | **Linux / Steam Deck**, the Windows game under Proton | [install_proton.sh]($base/install_proton.sh) -- run it with sh; it fetches the rest itself |
+          | **Linux**, the native game | [tpf2mp-linux-$ver-native.run]($base/tpf2mp-linux-$ver-native.run) -- close the game, ``bash tpf2mp-linux-$ver-native.run`` |
+
+          The files zip, the Linux .tar.gz, install_proton.py and the checksums are in the [packages for $tag]($pkg). The two *Source code* archives at the bottom are the repository, not the mod. Everyone in a session needs the same version.
 
           "@
           $notes = "installer/RELEASE-$ver.md"

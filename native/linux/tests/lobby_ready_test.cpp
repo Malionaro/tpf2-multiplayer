@@ -324,6 +324,19 @@ int main(int argc, char** argv)
     lobby::ApplyRoster(roster);
     assert(lobby::ReadSmallFile(dir+"mp_company_cfg.txt", &companyConfig));
     assert(companyConfig == "companies\n2\n1,2\na=1,b=2\n");
+    // Ordinary lobbies honor sticky letters even when a new name sorts first.
+    {
+        const auto saved = model;
+        assert(lobby::ParseJson(R"({"players":["aaron","host","joiner"],"you":"joiner","host":"host","mode":"companies","letters":{"aaron":"c","host":"a","joiner":"b"},"companies":{"aaron":3,"host":1,"joiner":2}})", &roster));
+        lobby::ApplyRoster(roster);
+        assert(!model.relay && OriginLetterFor(model,"joiner")=="b");
+        assert(OriginLetterFor(model,"aaron")=="c");
+        assert(ReadSmallFile(dir+"tpf2_bridge_ctl.txt", &ctl));
+        assert(ctl.find("instance=b\n")!=std::string::npos);
+        assert(ReadSmallFile(dir+"mp_company_cfg.txt", &companyConfig));
+        assert(companyConfig.find("c=3,a=1,b=2")!=std::string::npos);
+        model=saved;
+    }
     // A world switch consumes its transfer once and queues the engine's load.
     model.players={"host","joiner"}; model.companies={1,2}; model.you="joiner";
     model.isHost=false; model.saveReady=true; allowPlace=true;

@@ -14,7 +14,12 @@ and, asked, launchers on top even though launchers up to 1.2.0 then cannot insta
     v0.7.0.6   the version's page, first in the list and marked Latest: exactly
                TpF2Multiplayer-Launcher-Windows-Setup.exe   tearded's Setup.exe
                TpF2Multiplayer-Launcher-Linux.AppImage      its Linux launcher
-               under names that do not change (.../releases/latest/download/<name>)
+               under names that do not change (.../releases/latest/download/<name>),
+               and the direct installers (the user, 2026-09-26: "in addition to the
+               launcher download the install msi, proton and native linux.run"):
+               TpF2Multiplayer.msi  install_proton.sh  tpf2mp-linux-<v>-native.run
+               -- which also lets launchers up to 1.2.0 install it again: they look
+               for TpF2Multiplayer.msi on v<version>
     0.7.0.6    the update files, tagged without the "v", not Latest:
                TpF2Multiplayer.msi  TpF2Multiplayer-files.zip  install_proton.py
                install_proton.sh  SHA256SUMS.txt  tpf2mp-linux-<v>-native.run/.tar.gz/.sha256
@@ -335,14 +340,35 @@ def launcher_release(gh, args):
             say("left as a draft (--publish publishes it)")
 
 
-def launcher_table(tag, files_url):
+# the direct installers the version's page carries beside the launchers
+def page_direct(version):
+    return ["TpF2Multiplayer.msi", "install_proton.sh", f"tpf2mp-linux-{version}-native.run"]
+
+
+def launcher_table(tag, files_url, linux_launcher=True):
+    """The page's Download section: the launchers, then the direct installers."""
     base = f"https://github.com/{REPO}/releases/download/{tag}"
+    version = tag.lstrip("v")
+    run = f"tpf2mp-linux-{version}-native.run"
+    linux = (f"| **Linux / Steam Deck** (the native game or Proton) | **[{LINUX_NAME}]({base}/{LINUX_NAME})** -- make it executable, run it, then **Update & play** |\n"
+             if linux_launcher else "")
     return ("## Download\n\n| You play on | Get this one file |\n| --- | --- |\n"
             f"| **Windows** (Steam, game build 35924) | **[{WINDOWS_NAME}]({base}/{WINDOWS_NAME})** -- install it, then **Update & play** |\n"
-            f"| **Linux / Steam Deck** (the native game or Proton) | **[{LINUX_NAME}]({base}/{LINUX_NAME})** -- make it executable, run it, then **Update & play** |\n\n"
-            f"The launcher installs this version and keeps it up to date. Manual install files (MSI, Linux package, Proton script, checksums) "
-            f"are in [the update files]({files_url}). The two *Source code* archives at the bottom are the repository, not the mod. "
-            "Everyone in a session needs the same version.\n")
+            + linux +
+            "\nThe launcher installs this version and keeps it up to date. Or install this version directly:\n\n"
+            "| You play on | Get this one file |\n| --- | --- |\n"
+            f"| **Windows** | [TpF2Multiplayer.msi]({base}/TpF2Multiplayer.msi) -- close the game, run it |\n"
+            f"| **Linux / Steam Deck**, the Windows game under Proton | [install_proton.sh]({base}/install_proton.sh) -- run it with sh; it fetches the rest itself |\n"
+            f"| **Linux**, the native game | [{run}]({base}/{run}) -- close the game, `bash {run}` |\n\n"
+            f"The files zip, the Linux .tar.gz, install_proton.py and the checksums are in [the update files]({files_url}). "
+            "The two *Source code* archives at the bottom are the repository, not the mod. Everyone in a session needs the same version.\n")
+
+
+def download_section(body, tag, files_url, linux_launcher=True):
+    """body with its "## Download" section (up to the next "## ") replaced by launcher_table."""
+    rest = body.split("\n## ", 1)[1] if body.startswith("## Download") and "\n## " in body else None
+    table = launcher_table(tag, files_url, linux_launcher)
+    return table + "\n## " + rest if rest is not None else table + "\n" + body
 
 
 def copy_release(gh, tag, version, prerelease, commit, notes, files, dry):
@@ -436,12 +462,24 @@ def page_release(gh, args):
             if copy is not None and args.publish and copy["draft"]:
                 published(gh, copy, False)
         chosen = launchers(gh, args, tmp)
-        say(f"{tag} launchers:")
-        upload(gh, mod, [p for p, _ in chosen], [n for _, n in chosen])
-        only(gh, mod, {n for _, n in chosen}, tag)
+        direct = [f for f in files if f.name in page_direct(version)]
+        if len(direct) < len(page_direct(version)):
+            # the files were already moved off v<version>: take them from its packages release
+            pkg = gh.get(f"/repos/{PACKAGES_REPO}/releases/tags/{tag}") or {"assets": []}
+            for a in pkg["assets"]:
+                if a["name"] in page_direct(version) and a["name"] not in {f.name for f in direct}:
+                    path = tmp / a["name"]
+                    path.write_bytes(urllib.request.urlopen(a["browser_download_url"], timeout=600).read())
+                    want = (a.get("digest") or "")[7:]
+                    if want and sha256(path) != want:
+                        fail(f"{a['name']} does not match its digest; nothing changed")
+                    direct.append(path)
+        say(f"{tag} launchers and direct installers:")
+        upload(gh, mod, [p for p, _ in chosen] + direct, [n for _, n in chosen] + [p.name for p in direct])
+        only(gh, mod, {n for _, n in chosen} | {p.name for p in direct}, tag)
     pkg_url = f"https://github.com/{PACKAGES_REPO}/releases/tag/{tag}"
-    gh.write(f"{tag}: the launcher table and Latest", "PATCH", f"/repos/{REPO}/releases/{mod['id']}", body={
-        "name": version, "body": launcher_table(tag, pkg_url) + "\n" + notes,
+    gh.write(f"{tag}: the download table and Latest", "PATCH", f"/repos/{REPO}/releases/{mod['id']}", body={
+        "name": version, "body": launcher_table(tag, pkg_url, not args.no_linux_launcher) + "\n" + notes,
         "make_latest": "false" if mod["prerelease"] else "true"})
     say(("(dry run) " if args.dry_run else "") + f"done: https://github.com/{REPO}/releases/tag/{tag}")
 
@@ -492,9 +530,11 @@ def main():
         packages_release(gh, args.tag, version, mod["prerelease"], files)
         copy = copy_release(gh, args.tag, version, mod["prerelease"], mod.get("target_commitish") or "main",
                             notes_of(body), files, args.dry_run)
-        say(f"{args.tag} launchers:")
-        upload(gh, mod, [p for p, _ in chosen], [n for _, n in chosen])
-        only(gh, mod, {n for _, n in chosen}, args.tag)
+        direct = [f for f in files if f.name in page_direct(version)]
+        say(f"{args.tag} launchers and direct installers:")
+        upload(gh, mod, [p for p, _ in chosen] + direct, [n for _, n in chosen] + [p.name for p in direct])
+        only(gh, mod, {n for _, n in chosen} | {p.name for p in direct}, args.tag)
+    body = download_section(body, args.tag, f"https://github.com/{REPO}/releases/tag/{version}", not args.no_linux_launcher)
     if body != mod.get("body"):
         gh.write(f"update {args.tag}'s notes", "PATCH", f"/repos/{REPO}/releases/{mod['id']}", body={"body": body})
     if args.publish:

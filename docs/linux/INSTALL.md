@@ -504,3 +504,9 @@ servers, must update. This commit only stamps earlier changes: native cargo
 filter capture/replay and terrain-sidecar capture/serving remain unported.
 The upstream cargo-filter and repeated-load validation does not establish
 native Linux support; existing gameplay-validation limits still apply.
+
+The [dev `4617fb6f` integration](UPSTREAM_dev_4617fb6f.md) advances
+native Linux to **0.7.0.7 / FPT6**, retains commands owed to quiet members,
+adds adaptive retransmission and pacing fixes, and displays the version in
+the native panel. All peers must update. Direct installers now accompany
+the launchers on the version page. Existing native feature limits remain.

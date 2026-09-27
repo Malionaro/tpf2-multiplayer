@@ -194,9 +194,10 @@ class VersionReleaseTest(unittest.TestCase):
     def test_native_files_on_both_install_releases_and_page_published_last(self):
         self.run_version('--publish')
         uploads = [(url, kw['data']) for method, url, kw in self.writes if '?name=' in url]
-        self.assertEqual(len(uploads), 18)  # Eight files twice, plus two launchers.
+        self.assertEqual(len(uploads), 21)  # Eight files twice, two launchers, three direct installers.
         for name, data in self.files.items():
-            self.assertEqual([b for url, b in uploads if url.endswith('?name=' + name)], [data, data])
+            copies = 3 if name in publisher.page_direct(self.version) else 2
+            self.assertEqual([b for url, b in uploads if url.endswith('?name=' + name)], [data] * copies)
         for name in (publisher.WINDOWS_NAME, publisher.LINUX_NAME):
             self.assertEqual(sum(url.endswith('?name=' + name) for url, _ in uploads), 1)
         published = [(url, kw['body']) for method, url, kw in self.writes
@@ -211,10 +212,10 @@ class VersionReleaseTest(unittest.TestCase):
         self.assertIn('/releases/tag/v0.7.0.6', page['body'])
         self.assertEqual(page['target_commitish'], 'fixture-commit')
         self.assertFalse(any('/git/' in url for _, url, _ in self.writes))
-        # Existing launcher is replaced, but install payloads never go to the page.
+        # Existing launcher is replaced; the page also carries direct installers.
         self.assertIn(('DELETE', f'/repos/{publisher.REPO}/releases/assets/90', {}), self.writes)
         page_uploads = [url.split('?name=')[1] for url, _ in uploads if '/upload/1?' in url]
-        self.assertEqual(set(page_uploads), {publisher.WINDOWS_NAME, publisher.LINUX_NAME})
+        self.assertEqual(set(page_uploads), {publisher.WINDOWS_NAME, publisher.LINUX_NAME, *publisher.page_direct(self.version)})
         self.assertIn(('DELETE', f'/repos/{publisher.REPO}/releases/assets/91', {}), self.writes)
 
     def test_prerelease_page_is_not_latest(self):
