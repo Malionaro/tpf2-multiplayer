@@ -105,6 +105,18 @@ function T.clickSwatch(prefix, idx)
   for _, w in ipairs(W.all) do if w.kind == "Button" and w.tv == tv then w.click(); return true end end
   return false
 end
+-- how many places hold each widget: a layout's items, a component's layout, a button's label
+function T.twice()
+  local held, out = {}, {}
+  local function hold(x) held[x] = (held[x] or 0) + 1 end
+  for _, w in ipairs(W.all) do
+    for _, x in ipairs(w.items) do if type(x) == "table" then hold(x) end end
+    if w.layout then hold(w.layout) end
+    if w.tv then hold(w.tv) end
+  end
+  for x, n in pairs(held) do if n > 1 then out[#out + 1] = x.kind .. ":" .. tostring(x.text) end end
+  return table.concat(out, ", ")
+end
 function T.injected()
   local f = io.open(BASE .. "lockstep_inject_a.txt", "r")
   if not f then return "" end
@@ -132,6 +144,7 @@ check("yours first, selected, with its colour", lines[0].startswith("> Ada's com
 check("Bob's row says who plays it", "Bob's company" in rows and "playing: Bob" in rows, rows)
 check("a locked company says so", "Vault" in rows and "[locked]" in rows, rows)
 check("your company's name is shown", "Ada's company" in T.D.coNameText.text, T.D.coNameText.text)
+check("no widget is placed twice (a button's label is not also a row item)", T.twice() == "", T.twice())
 
 # select Bob's row, refresh: the selection stays
 bob_row = next(i for i in range(1, 4) if "Bob's company" in T.D.coRows[i].tv.text)

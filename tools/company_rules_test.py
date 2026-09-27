@@ -62,6 +62,22 @@ empty.boot()
 empty.cm().cmCreate(7, None)
 check("a company without a founder is 'Company N'", empty.cm().cmNameOf(7) == "Company 7", empty.cm().cmNameOf(7))
 
+# ---------------- one colour per company ----------------
+bob_color = A.cm().cmColorOf(2)
+s.request(A, f"CMCOLOR 1 {bob_color} 1")
+s.pump()
+check("a colour another company uses is refused", A.cm().cmColorOf(1) != bob_color and "already uses that colour" in str(A.cm().cmLastNote),
+      str(A.cm().cmLastNote))
+s.request(A, f"CMNEW {bob_color} 1 Copycat")
+s.pump()
+cc = A.cm().cmMyCompany
+check("a new company asking for a used colour gets a free one", A.cm().cmColorOf(cc) not in (bob_color, A.cm().cmColorOf(1)),
+      str(A.cm().cmColorOf(cc)))
+s.request(A, "CMSWITCH 1")
+s.pump()
+s.request(A, f"CMDEL {cc} 1")
+s.pump()
+
 # ---------------- station access ----------------
 check("stations are open to everyone by default", A.cm().cmOpenCode(1) == "*" and A.cm().cmStationOpen(1, 2))
 s.request(A, "CMOPEN * 0")

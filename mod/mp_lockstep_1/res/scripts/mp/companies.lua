@@ -264,6 +264,11 @@ function CM.cmColorOf(cid)
 	return (co and CM.cmClampColor(co.color)) or CM.cmClampColor(cid) or 1
 end
 function CM.cmCompanyColor(cid) return CM.cmPaletteColor(CM.cmColorOf(cid)) end
+-- the company (other than `except`) that already draws with palette index idx
+function CM.cmColorHolder(idx, except)
+	for cid, co in pairs(CM.co.list) do if cid ~= except and co.color == idx then return cid end end
+	return nil
+end
 -- the first of the menu's colours no company uses (else the id's own)
 function CM.cmFreeColor(cid)
 	local used = {}
@@ -1054,7 +1059,10 @@ function CM.cmCreate(cid, founderKey, fields)
 	local co = CM.co
 	local ord = nil
 	if founderKey then co.founded[founderKey] = (co.founded[founderKey] or 0) + 1; ord = co.founded[founderKey] end
-	co.list[cid] = { name = fields.name, color = CM.cmClampColor(fields.color) or CM.cmFreeColor(cid),
+	-- one colour per company: a colour another company uses gives way to a free one
+	local color = CM.cmClampColor(fields.color)
+	if color and CM.cmColorHolder(color, cid) then color = nil end
+	co.list[cid] = { name = fields.name, color = color or CM.cmFreeColor(cid),
 	                 paint = fields.paint ~= false, pw = fields.pw, pwv = 2,
 	                 founder = founderKey, fname = founderKey and co.names[founderKey] or nil, ord = ord }
 	co.nextId = math.max(co.nextId or 1, cid + 1)
@@ -1126,7 +1134,12 @@ function CM.cmExecJoin(c, o)
 	local how = "back in their company"
 	if not cid and co.legacy then
 		cid = CM.cmClaimLegacy(o)
-		if cid then how = "claimed from the older save" end
+		if cid then
+			how = "claimed from the older save"
+			-- an older save kept founders by letter: the claimant names an unnamed company now
+			local it = co.list[cid]
+			if not it.founder and not it.fname then it.founder = key; it.ord = 1 end
+		end
 	end
 	if not cid then
 		local want = tonumber(c.want) or 1
@@ -1285,6 +1298,8 @@ function CM.execCompanyCmd(c)
 		CM.cmApplyNames()
 	elseif c.op == "CMCOLOR" then
 		local color = CM.cmClampColor(c.color) or it.color
+		local holder = CM.cmColorHolder(color, cid)
+		if holder then return CM.cmNote(string.format("%s already uses that colour", CM.cmNameOf(holder))) end
 		local paint = (c.paint == nil) and it.paint or (tonumber(c.paint) ~= 0)
 		local repaint = paint and (not it.paint or color ~= it.color)
 		it.color, it.paint = color, paint

@@ -73,11 +73,18 @@ end
 -- ---------- widgets ----------
 local function gui() return api.gui end
 function CM.coGuiText(s) return gui().comp.TextView.new(s or "") end
-function CM.coGuiButton(label, fn)
+-- a button and its label (the label is needed to change the text later)
+function CM.coGuiButtonTv(label, fn)
 	local tv = gui().comp.TextView.new((label:gsub("^%s+", ""):gsub("%s+$", "")):upper())
 	local b = gui().comp.Button.new(tv, true)
 	b:onClick(function() local ok, err = pcall(fn); if not ok then print("[ls-gui] companies: " .. tostring(err)) end end)
 	return b, tv
+end
+-- a button alone: ONE return value, so it can sit inside a table constructor (a second
+-- value, the label, would land in the row as a widget of its own)
+function CM.coGuiButton(label, fn)
+	local b = CM.coGuiButtonTv(label, fn)
+	return b
 end
 function CM.coGuiInput(minW)
 	local mk = gui().comp.TextInputField
@@ -134,16 +141,20 @@ function CM.coGuiColorRows(D, prefix, onPick)
 	return rows
 end
 -- mark the chosen colour in a colour row
-function CM.coGuiMarkColor(D, prefix, chosen)
+-- mark the chosen colour (X) and the ones other companies use (-, the sim refuses them)
+function CM.coGuiMarkColor(D, prefix, chosen, st, self)
 	D.coShown = D.coShown or {}
+	local taken = {}
+	for _, it in ipairs(st and st.list or {}) do if it.cid ~= self and it.color then taken[it.color] = true end end
 	for idx, tv in pairs(D[prefix .. "ColorTv"] or {}) do
-		CM.coGuiSetText(D, prefix .. "C" .. idx, tv, idx == chosen and " X " or "   ")
-		-- !mpCoN paints text like the background: the chosen one's X is white (style sheet !mpCoPick)
+		local mark = (idx == chosen and " X ") or (taken[idx] and " - ") or "   "
+		CM.coGuiSetText(D, prefix .. "C" .. idx, tv, mark)
+		-- !mpCoN paints text like the background: a mark is white (style sheet !mpCoPick)
 		local key = prefix .. "K" .. idx
-		local want = idx == chosen and "pick" or "plain"
+		local want = mark ~= "   " and "pick" or "plain"
 		if D.coShown[key] ~= want then
 			D.coShown[key] = want
-			pcall(function() tv:setStyleClassList(idx == chosen and { "mpCo" .. idx, "mpCoPick" } or { "mpCo" .. idx }) end)
+			pcall(function() tv:setStyleClassList(want == "pick" and { "mpCo" .. idx, "mpCoPick" } or { "mpCo" .. idx }) end)
 		end
 	end
 end
@@ -163,7 +174,7 @@ function CM.coGuiBuild(D, box)
 	for i = 1, CM.CO_GUI_ROWS do
 		local row = {}
 		row.sw = CM.coGuiSwatch()
-		row.btn, row.tv = CM.coGuiButton("-", function() if row.cid then D.coSel = row.cid; D.coDelOpen = false; D.coHint = nil end end)
+		row.btn, row.tv = CM.coGuiButtonTv("-", function() if row.cid then D.coSel = row.cid; D.coDelOpen = false; D.coHint = nil end end)
 		row.info = CM.coGuiText("")
 		row.c = CM.coGuiRow({ row.sw, row.btn, row.info }, "mpCompanyListRow" .. i)
 		V:addItem(row.c)
@@ -228,7 +239,7 @@ function CM.coGuiBuild(D, box)
 	nl:addItem(CM.coGuiText("Colour"))
 	for _, r in ipairs(CM.coGuiColorRows(D, "coNew", function(idx) D.coNewColor = idx end)) do nl:addItem(r) end
 	D.coNewPaint = true
-	D.coNewPaintBtn, D.coNewPaintTv = CM.coGuiButton("Vehicles in company colour: on", function() D.coNewPaint = not D.coNewPaint end)
+	D.coNewPaintBtn, D.coNewPaintTv = CM.coGuiButtonTv("Vehicles in company colour: on", function() D.coNewPaint = not D.coNewPaint end)
 	nl:addItem(D.coNewPaintBtn)
 	D.coNewPw = CM.coGuiInput(180)
 	nl:addItem(CM.coGuiRow({ CM.coGuiText("Password (optional)"), D.coNewPw }, "mpCompanyNewPw"))
@@ -257,7 +268,7 @@ function CM.coGuiBuild(D, box)
 		local me = D.coState and D.coMine and D.coState.byId[D.coMine]
 		if me then CM.coGuiSend(string.format("CMCOLOR %d %d %d", D.coMine, idx, me.paint and 1 or 0)) end
 	end)) do sl:addItem(r) end
-	D.coPaintBtn, D.coPaintTv = CM.coGuiButton("Vehicles in company colour: on", function()
+	D.coPaintBtn, D.coPaintTv = CM.coGuiButtonTv("Vehicles in company colour: on", function()
 		local me = D.coState and D.coMine and D.coState.byId[D.coMine]
 		if me then CM.coGuiSend(string.format("CMCOLOR %d %d %d", D.coMine, me.color, me.paint and 0 or 1)) end
 	end)
@@ -375,11 +386,11 @@ function CM.coGuiRefresh(D, kv, guiTick)
 	CM.coGuiShow(D.coNewBox, D.coNewOpen)
 	CM.coGuiShow(D.coSetBox, D.coSetOpen and me ~= nil)
 	if D.coNewOpen then
-		CM.coGuiMarkColor(D, "coNew", D.coNewColor)
+		CM.coGuiMarkColor(D, "coNew", D.coNewColor, st, nil)
 		CM.coGuiSetText(D, "newPaint", D.coNewPaintTv, D.coNewPaint and "VEHICLES IN COMPANY COLOUR: ON" or "VEHICLES IN COMPANY COLOUR: OFF")
 	end
 	if D.coSetOpen and me then
-		CM.coGuiMarkColor(D, "coSet", me.color)
+		CM.coGuiMarkColor(D, "coSet", me.color, st, me.cid)
 		CM.coGuiSetText(D, "paint", D.coPaintTv, me.paint and "VEHICLES IN COMPANY COLOUR: ON" or "VEHICLES IN COMPANY COLOUR: OFF")
 		CM.coGuiSetText(D, "openText", D.coOpenText, "Your stations are open to: " .. CM.coGuiOpenText(me.open, st))
 	end

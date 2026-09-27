@@ -79,6 +79,8 @@ for order in (["b", "a"], ["a", "b"]):
     check(f"{tag}: Friend's human entity now holds his company", B.T.W.players[100].balance == 5000000)
     same_company_state(s, tag, [1, 2])
     check(f"{tag}: the menu says the save was imported", "older version" in A.T.parseDash().migrated)
+    check(f"{tag}: the claimed companies are named after their players",
+          A.cm().cmNameOf(2) == "Kaguya's company" and B.cm().cmNameOf(1) == "Friend's company", f"{A.cm().cmNameOf(2)} / {B.cm().cmNameOf(1)}")
 
 # the old rule, for contrast: a v1 save WITHOUT the saver's hint would have swapped
 # (not reproducible any more -- the host now claims `mine`); the same host as the
