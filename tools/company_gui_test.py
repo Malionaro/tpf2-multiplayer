@@ -198,6 +198,7 @@ T.D.coDelNow.click()
 T.refresh(DASH)
 check("the first click only asks again", T.injected() == "" and T.D.coDelNowTv.text == "DELETE EVERYTHING - SURE?" and "REALLY DELETE EVERYTHING" in T.D.coDelText.text,
       T.D.coDelText.text)
+check("the warning is broken into lines that fit the window", "\n" in T.D.coDelText.text and max(len(l) for l in T.D.coDelText.text.split("\n")) <= 52, T.D.coDelText.text)
 T.D.coDelNow.click()
 check("the second click deletes with nobody taking over", T.injected() == f"CMDEL {vault} 0 x\n")
 

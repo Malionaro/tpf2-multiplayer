@@ -126,6 +126,23 @@ function CM.coGuiBox(items, name, orient)
 	return c
 end
 function CM.coGuiShow(w, on) if w then pcall(function() w:setVisible(on and true or false, false) end) end end
+-- A long text broken into lines at spaces: a TextView does not wrap, and the
+-- delete warning ran past the window's right edge (2026-09-27). 52 characters is
+-- what the chat log holds in the same window (CM.chatWrap).
+function CM.coGuiWrap(s, width)
+	width = width or 52
+	local out = {}
+	local NL = string.char(10)
+	for para in (tostring(s or "") .. NL):gmatch("(.-)" .. NL) do
+		local line = ""
+		for word in para:gmatch("%S+") do
+			if line ~= "" and #line + 1 + #word > width then out[#out + 1] = line; line = word
+			else line = (line == "" and word or line .. " " .. word) end
+		end
+		out[#out + 1] = line
+	end
+	return table.concat(out, NL)
+end
 function CM.coGuiSetText(D, key, w, s)
 	D.coShown = D.coShown or {}
 	if w and D.coShown[key] ~= s then D.coShown[key] = s; pcall(function() w:setText(s) end) end
@@ -361,7 +378,7 @@ function CM.coGuiRefresh(D, kv, guiTick)
 	CM.coGuiSetText(D, "mineName", D.coNameText, " " .. mineText .. "   ")
 	CM.coGuiShow(D.coSetToggle, me ~= nil)
 	CM.coGuiSetText(D, "setToggle", D.coSetToggleTv, D.coSetOpen and "CLOSE" or "SETTINGS")
-	CM.coGuiSetText(D, "mig", D.coMigText, st.migrated or "")
+	CM.coGuiSetText(D, "mig", D.coMigText, CM.coGuiWrap(st.migrated or ""))
 	CM.coGuiShow(D.coMigText, st.migrated ~= "")
 	-- the selection survives every refresh; a deleted company falls back to yours
 	if not D.coSel or not st.byId[D.coSel] then D.coSel = st.mine end
@@ -409,7 +426,7 @@ function CM.coGuiRefresh(D, kv, guiTick)
 		else
 			text = "Delete " .. sel.name .. "? Its vehicles, lines, stations, money and loan go to the company chosen below."
 		end
-		CM.coGuiSetText(D, "delText", D.coDelText, text .. (#sel.playing > 0 and "  Someone is playing it: the game will refuse." or ""))
+		CM.coGuiSetText(D, "delText", D.coDelText, CM.coGuiWrap(text .. (#sel.playing > 0 and " Someone is playing it: the game will refuse." or "")))
 		CM.coGuiSetText(D, "delNow", D.coDelNowTv, D.coDelInto == 0 and (D.coDelArmed and "DELETE EVERYTHING - SURE?" or "DELETE EVERYTHING") or "DELETE")
 		CM.coGuiSetClass(D, "delNowCls", D.coDelNow, D.coDelInto == 0 and "mpCoDanger" or "mpDashPrimary")
 	end
@@ -437,7 +454,7 @@ function CM.coGuiRefresh(D, kv, guiTick)
 		local loading = CM.cmLoadingPlayers()
 		D.coLoadingNote = (#loading > 0) and CM.cmLoadingNote(loading) or nil
 	end
-	CM.coGuiSetText(D, "note", D.coNote, (D.coHint or D.coLoadingNote or st.note))
+	CM.coGuiSetText(D, "note", D.coNote, CM.coGuiWrap(D.coHint or D.coLoadingNote or st.note or ""))
 end
 
 return {}
