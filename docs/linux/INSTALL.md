@@ -1,10 +1,12 @@
 # TpF2 Multiplayer on Linux: install, uninstall, logs
 
-Current release integration: **0.7.1**, Windows dev `d3f199f9`; see the
-[integration and validation record](UPSTREAM_dev_d3f199f9.md). All peers, including dedicated
+Current release integration: **0.7.1**, Windows dev `893be145`; see the
+[integration and validation record](UPSTREAM_dev_893be145.md). All peers, including dedicated
 servers, must update. Existing native Sandbox town-tool capture, minimap and
 cargo-filter limitations remain. Upstream performance measurements were not
 repeated locally; matching release numbers do not establish gameplay parity.
+Dedicated lobby startup now preserves valid managed Workshop registrations;
+ordinary hosts still wait for the selected save’s mod list.
 
 This release is for the **native Linux version** of Transport Fever 2 on Steam. If you run the
 Windows version through Proton, it does not apply.
