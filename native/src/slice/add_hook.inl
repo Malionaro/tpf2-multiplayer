@@ -629,7 +629,7 @@ extern "C" uint64_t DeferHandler(uint64_t rcx, uint64_t rdx, uint64_t r8, uint64
         return 0;
     }
 
-    if ((id >= 2 && id <= 10) || id == 13 || id == 14 || id == 18) {
+    if ((id >= 2 && id <= 10) || id == 13 || id == 14 || id == 18 || id == 19 || id == 20) {
         const Factory* f = nullptr;
         for (int i = 0; i < NUM_FACTORIES; i++) if (FACTORIES[i].id == (int)id) f = &FACTORIES[i];
         if (!f) return 0;
@@ -672,7 +672,8 @@ extern "C" uint64_t DeferHandler(uint64_t rcx, uint64_t rdx, uint64_t r8, uint64
         const bool luaPath = IsScriptCaller(caller);
         const bool strictId = (id == 2 || id == 3 || id == 4 || id == 5 ||
                                id == 6 || id == 8 || id == 9 || id == 10 || id == 18) ||
-                              (id == 7 && caller == CALLER_UI_CREATELINE);
+                              (id == 7 && caller == CALLER_UI_CREATELINE) ||
+                              (id == 19 && caller == CALLER_TOWNBUILDER);
         bool cancel = !luaPath && strictId;
         __try {
             CaptureFactory(*f, rcx, rdx, r8, r9, calleeRsp, caller, cancel);

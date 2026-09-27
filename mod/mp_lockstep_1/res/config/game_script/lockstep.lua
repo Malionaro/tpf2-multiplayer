@@ -558,7 +558,7 @@ K.JOURNAL_LOAN = 0
 -- a 30,000,000 loan is several ticks of settling.
 K.LOAN_SETTLE_TICKS = 90
 K.JOURNAL_TRANSFER = 6
-K.STRICT_OPS = { VREV = true, VSTOP = true, VLINE = true, VSELL = true, VDEPOT = true, VREPL = true, VBUY = true, LCREATE = true, LUPDATE = true, LDELETE = true, LSPARE = true }   -- replay on the originator too, but only when ARMED=1 (the slice cancelled it)
+K.STRICT_OPS = { VREV = true, VSTOP = true, VLINE = true, VSELL = true, VDEPOT = true, VREPL = true, VBUY = true, LCREATE = true, LUPDATE = true, LDELETE = true, LSPARE = true, TOWNC = true }   -- replay on the originator too, but only when ARMED=1 (the slice cancelled it)
 -- CONX/CONP have no slice cancel (the construction's module params cannot be
 -- read from the proposal); the originator instead deletes its native copy and
 -- replays, gated by c.cancelled rather than ARMED. See execConX.
@@ -662,6 +662,9 @@ CM.boot("mp.terrain")
 -- ---------- the asset brush (ASSETCAP -> ASSETS) ----------
 -- Lives in res/scripts/mp/assets.lua.
 CM.boot("mp.assets")
+-- ---------- Sandbox mode's tools: towns (TOWNC) ----------
+-- Lives in res/scripts/mp/sandbox.lua (after mp.cons: it uses CM.unescName).
+CM.boot("mp.sandbox")
 local function execute(c)
 	-- any other command may edit the road/rail network: EDEMO's node index
 	-- (cons.lua) is only reused across consecutive bulldozes
@@ -698,6 +701,7 @@ local function execute(c)
 	elseif c.op == "SPEEDVOTE" then CM.execSpeedVote(c)
 	elseif c.op == "TERRAIN" then CM.execTerrain(c)
 	elseif c.op == "ASSETS" then CM.execAssets(c)
+	elseif c.op == "TOWNC" then CM.execTownCreate(c)
 	elseif c.op == "CMNEW" or c.op == "CMSWITCH" or c.op == "CMDEL" or c.op == "CMPW" or c.op == "CMNAME" or c.op == "CMOPEN" then CM.execCompanyCmd(c)
 	else log("unknown op: " .. tostring(c.op)) end
 end
