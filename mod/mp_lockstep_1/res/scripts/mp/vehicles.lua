@@ -984,12 +984,13 @@ end
 -- plus a vehicleGroups list), so they decode it with the same code: a second copy of
 -- this would drift the moment one op learned about a new field, and a wrong
 -- config is a wrong vehicle in a depot -- an uncatchable native assert away.
--- A global (not a `local function`): the chunk is at Lua 5.1's 200-local limit.
+-- A CM field (not a `local function`): the chunk is at Lua 5.1's 200-local limit.
+-- It was a global, leaking into the game-script state other mods share.
 --
 -- RAISES on a part this peer cannot build (unknown model, malformed spec). Both
 -- callers run it inside their pcall, so the command is logged and skipped
 -- instead of half-applied.
-function buildVehConfig(c)
+function CM.buildVehConfig(c)
 	local config = api.type.TransportVehicleConfig.new()
 	local u = 0
 	for spec in tostring(c.parts or ""):gmatch("[^;]+") do
@@ -1169,7 +1170,7 @@ function CM.execVBuy(c)
 			log(string.format("EXEC VBUY seq=%s: construction %d has no depot child -- vehicle NOT bought", tostring(c.seq), depot))
 			return
 		end
-		local config, u = buildVehConfig(c)
+		local config, u = CM.buildVehConfig(c)
 		local seq, origin, at = c.seq, c.origin, c.at
 		-- COMPANIES MODE: buy AS the originating company (2026-09-09). The first
 		-- argument of buyVehicle is the player entity; passing our own and then
@@ -1268,7 +1269,7 @@ function CM.execVReplace(c)
 				tostring(c.seq), key))
 			return
 		end
-		local config, u = buildVehConfig(c)
+		local config, u = CM.buildVehConfig(c)
 		local seq, origin, at = c.seq, c.origin, c.at
 		local okM, cmd = pcall(function() return api.cmd.make.replaceVehicle(veh, config) end)
 		if not okM or not cmd then
