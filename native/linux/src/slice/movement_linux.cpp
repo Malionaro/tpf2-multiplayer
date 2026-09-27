@@ -169,24 +169,34 @@ uintptr_t RoadEdgeData(uintptr_t mgr, uint64_t edge)
     if (!mgr || id0<0 || id1<0) return 0;
     // Shape checks only: the two whole-world vectors run to megabytes, and a page walk
     // of them on every Add was 1,000 syscalls (2026-09-27). The element is read guarded.
+    // The two headers are adjacent (+30, +48): one read. EdgeData's own vector is
+    // checked by shape too; its element is the next thing read, guarded.
     SliceVec indices{}, groups{}, datas{};
+    uint64_t heads[6];
     int32_t group=-1;
-    if (!SliceReadStdVectorShape(mgr+0x30,4,1u<<26,&indices) || size_t(id0)>=indices.count ||
+    if (!SliceRead(mgr+0x30,heads,sizeof(heads)) ||
+        !SliceStdVectorFromHeader(mgr+0x30,heads,4,1u<<26,&indices) || size_t(id0)>=indices.count ||
         !SliceReadT(indices.begin+size_t(id0)*4,&group) || group<0) return 0;
-    if (!SliceReadStdVectorShape(mgr+0x48,72,1u<<24,&groups) || size_t(group)>=groups.count) return 0;
-    if (!SliceReadStdVector(groups.begin+size_t(group)*72,32,1u<<24,&datas) || size_t(id1)>=datas.count) return 0;
+    if (!SliceStdVectorFromHeader(mgr+0x48,heads+3,72,1u<<24,&groups) || size_t(group)>=groups.count) return 0;
+    if (!SliceReadStdVectorShape(groups.begin+size_t(group)*72,32,1u<<24,&datas) || size_t(id1)>=datas.count) return 0;
     return datas.begin+size_t(id1)*32;
 }
 enum RoadSortResult { RoadUnchanged, RoadSorted, RoadRefused };
-RoadSortResult RoadEntriesSortAt(uintptr_t world, uintptr_t mgr, uint64_t edge, int type) noexcept
+constexpr int kNameTypeLater=-2;   // resolve NameType(world) only when there is something to sort
+// Most Adds leave an edge with one vehicle: everything before the n<2 return is
+// paid on every Add, so it is four guarded reads and no engine call. The entries'
+// bytes are read whole below, which is their readability check.
+// Not noexcept: NameType is an engine call, and what it throws passes through as before.
+RoadSortResult RoadEntriesSortAt(uintptr_t world, uintptr_t mgr, uint64_t edge, int type)
 {
     const uintptr_t ed=RoadEdgeData(mgr,edge);
     if (!ed) return RoadUnchanged;
     SliceVec entries{};
-    if (!SliceReadStdVector(ed+8,ROADENTRY_SIZE,1u<<24,&entries)) return RoadRefused;
+    if (!SliceReadStdVectorShape(ed+8,ROADENTRY_SIZE,1u<<24,&entries)) return RoadRefused;
     const size_t n=entries.count;
     if (n<2) return RoadUnchanged;
     if (n>ROADENTRIES_MAX) return RoadRefused;
+    if (type==kNameTypeLater) type=world ? NameType(world) : -1;
     try {
         thread_local std::vector<uint8_t> recs;
         thread_local std::vector<TrainOrderKey> keys;
@@ -400,7 +410,7 @@ void SliceRoadEntriesAdd(uintptr_t mgr,uint64_t edge,uint32_t forward,int32_t en
     roadEntriesOriginal(mgr,edge,forward,entity,comp,bounds);
     ++reCalls;
     if (!world || !mgr) return;
-    const RoadSortResult r=RoadEntriesSortAt(world,mgr,edge,NameType(world));
+    const RoadSortResult r=RoadEntriesSortAt(world,mgr,edge,kNameTypeLater);
     if (r==RoadSorted) ++reSorted;
     else if (r==RoadRefused) ++reRefused;
 }
