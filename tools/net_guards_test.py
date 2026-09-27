@@ -56,6 +56,17 @@ for _ in range(3):
     c.close()
 check("a link handler that raises leaves the pending count at 0", L._pending == 0, str(L._pending))
 
+# ---- 3. connect.py's lines, when the lobby runs them, are redacted and forwarded ----
+import connect   # noqa: E402
+import lobby     # noqa: E402
+
+got = []
+lobby._log_sinks.append(got.append)
+connect.log("[race] WON on v4 via 203.0.113.9:4000")
+lobby._log_sinks.remove(got.append)
+check("a connect.py line run by the lobby reaches the merged log, its IP masked",
+      got == ["[race] WON on v4 via 203.0.113.x:4000"], str(got))
+
 print()
 if fails:
     print(f"{len(fails)} FAILED")

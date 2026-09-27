@@ -186,12 +186,14 @@ import time
 from punch import (
     DEFAULT_PORT, TYPE_HELLO, TYPE_ACK, TYPE_CONNECTED, TYPE_KEEPALIVE,
     TYPE_DATA, TYPE_EDATA, TYPE_ADATA, TYPE_KEYX, TOKEN_LEN, _pack, _unpack, open_socket,
+    CHUNK_PREFIX,
 )
 from seal import Sealer, derive_key, SECRET_LEN
 import modshare                     # share the mods a save needs (mod zips ride the save transfer)
 import steamtunnel                  # Steam's own networking as a transport (native/src/steam_tunnel.cpp), 2026-09-21
 import steamkey                     # the session secret over Steam when the join code is only a Steam ID, 2026-09-22
 # Reuse the code exchange + the connect race + observe/announce.
+import connect
 from connect import decode_code, race, _observe_and_announce, encode_profile, _targets_v4, parse_hostport
 from mesh import MeshNode
 
@@ -278,8 +280,9 @@ CHUNK_DATA = 1350           # bytes of file data per chunk (1200 until 2026-09-1
                             # NP1 frame(5) + chunk header(12) + 1200 = 1217 bytes,
                             # under the 1280 IPv6 min-MTU and 1500 v4 MTU (even
                             # through PPPoE/VPN overhead) -- no fragmentation.
-CHUNK_MAGIC = b"NPF1"       # 4-byte tag: a DATA payload starting with this is a
-                            # binary chunk, not a JSON lobby message ('{' != 'N').
+CHUNK_MAGIC = CHUNK_PREFIX  # b"NPF1": a DATA payload starting with this is a binary
+                            # chunk, not a JSON lobby message ('{' != 'N'). punch.py's
+                            # sealed-session carve-out matches the same prefix.
 # Chunks a peer may have in flight. LOCALITY-DEPENDENT, for the same reason the
 # chunk size is, and getting this wrong is worse than getting the chunk size
 # wrong: the window is how much UNACKNOWLEDGED data we are willing to blast
@@ -457,7 +460,7 @@ DUAL = [None]
 def _tcp_backup_on(io_dir):
     try:
         with open(os.path.join(io_dir, "tpf2mp_tcp_backup.txt"), "r", encoding="utf-8") as f:
-            return f.read().strip() not in ("0", "off", "no")
+            return f.read().strip().lower() not in ("0", "off", "no")   # "OFF" too, like _live_join_on
     except OSError:
         return True
 
@@ -725,6 +728,9 @@ def _log(msg):
             sink(line)
         except Exception:          # noqa: BLE001 -- logging must never raise
             pass
+
+
+connect.LOG_SINK[0] = _log     # connect.py's race/observe lines: redacted and merged like ours
 
 
 # --------------------------------------------------------------------------- #
@@ -3827,8 +3833,10 @@ def _rv_sealer(secret, password):
 def _steam_tunnel(args):
     """The Steam tunnel client for this lobby (steamtunnel.py): a no-op object
     without a data dir, the kill switch, or a bridge whose Steam is not up."""
-    d = getattr(args, "sync_runtime_dir", None) or os.environ.get("TPF2MP_DATADIR") \
-        or os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "tpf2mp", "data")
+    # modshare.data_dir(): the platform's data folder. The hand-written fallback
+    # here gave ~/tpf2mp/data on Linux (no LOCALAPPDATA), not the real one.
+    d = getattr(args, "sync_runtime_dir", None) or modshare.data_dir() \
+        or os.path.join(os.path.expanduser("~"), "tpf2mp", "data")
     t = steamtunnel.SteamTunnel(d, _log, wait=1.0)   # the bridge wrote the identity long before HOST/JOIN; 1 s covers a game still starting
     if not t.available:
         _log("[steam] no Steam transport (no tunnel identity in the data folder)")
@@ -8389,7 +8397,9 @@ def print_public_list(master_url, timeout=PUBLIC_LIST_TIMEOUT):
     url = str(master_url).rstrip("/") + "/list"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "tpf2mp-lobby/" + LOBBY_VERSION})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        # the same TLS roots as every other master request (_http_json): without
+        # them a Windows lacking ISRG Root X2 saw the list fail as "expired"
+        with urllib.request.urlopen(req, timeout=timeout, context=_master_ssl_context()) as r:
             status, body = r.status, r.read()
         if status == 200:
             rc, out = 0, body if body.endswith(b"\n") else body + b"\n"
