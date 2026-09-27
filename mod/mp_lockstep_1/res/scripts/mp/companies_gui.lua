@@ -156,36 +156,93 @@ function CM.coGuiSetClass(D, key, w, cls)
 	end
 end
 function CM.coGuiSwatch() return gui().comp.TextView.new("     ") end
--- the colour swatches (the first CM_PICK_COLORS palette entries); onPick(idx)
-function CM.coGuiColorRows(D, prefix, onPick)
-	local rows, labels = {}, {}
-	local per = 12
-	for r = 0, math.ceil(CM.CM_PICK_COLORS / per) - 1 do
+-- one colour button: a label painted by class (the mark on it is set later)
+local function swatchButton(onClick)
+	local tv = gui().comp.TextView.new("   ")
+	local b = gui().comp.Button.new(tv, true)
+	b:onClick(function() local ok, err = pcall(onClick); if not ok then print("[ls-gui] companies: " .. tostring(err)) end end)
+	return b, tv
+end
+-- the hue column (1..24) a colour sits nearest to, for opening the picker on it
+function CM.coGuiHueOf(v)
+	local r, g, b = CM.cmColorRGB(v)
+	local mx, mn = math.max(r, g, b), math.min(r, g, b)
+	if mx - mn < 20 then return 1 end
+	local h
+	if mx == r then h = ((g - b) / (mx - mn)) % 6 elseif mx == g then h = (b - r) / (mx - mn) + 2 else h = (r - g) / (mx - mn) + 4 end
+	return math.floor(h * 60 / (360 / CM.CM_GRID_HUES) + 0.5) % CM.CM_GRID_HUES + 1
+end
+-- THE COLOUR PICKER (free choice, 2026-09-27; the user: "lass uns die farbauswahl
+-- frei waehlbar machen"). Three parts, onPick(colour) with a stored colour value:
+--   hues     24 buttons in two rows: choose a hue (nothing is sent)
+--   shades   that hue in 5 shades, then 6 greys: a click picks the colour
+--   exact    "#RRGGBB" typed in, USE picks exactly that colour
+-- Every swatch is a style class the sheet defines (the grid classes 201..), so it
+-- shows its true colour. D[prefix .. "Hue"] is the hue shown.
+function CM.coGuiPicker(D, prefix, onPick)
+	local rows = {}
+	local per = CM.CM_GRID_HUES / 2
+	D[prefix .. "HueTv"], D[prefix .. "ShadeTv"], D[prefix .. "ShadeCls"] = {}, {}, {}
+	for r = 0, 1 do
 		local items = {}
-		for i = r * per + 1, math.min(CM.CM_PICK_COLORS, (r + 1) * per) do
-			local idx = i
-			local tv = gui().comp.TextView.new("   ")
-			local b = gui().comp.Button.new(tv, true)
-			b:onClick(function() local ok, err = pcall(onPick, idx); if not ok then print("[ls-gui] companies: " .. tostring(err)) end end)
-			pcall(function() tv:setStyleClassList({ "mpCo" .. idx }) end)
-			labels[idx] = tv
+		for h = r * per + 1, (r + 1) * per do
+			local b, tv = swatchButton(function() D[prefix .. "Hue"] = h end)
+			pcall(function() tv:setStyleClassList({ "mpCo" .. CM.cmGridClass(h, 3) }) end)
+			D[prefix .. "HueTv"][h] = tv
 			items[#items + 1] = b
 		end
-		rows[#rows + 1] = CM.coGuiBox(items, prefix .. "Colors" .. r)
+		rows[#rows + 1] = CM.coGuiBox(items, prefix .. "Hues" .. r)
 	end
-	D[prefix .. "ColorTv"] = labels
+	local items = {}
+	local n = #CM.CM_GRID_SHADES + #CM.CM_GRID_GREYS
+	for i = 1, n do
+		local b, tv = swatchButton(function()
+			local cls = D[prefix .. "ShadeCls"][i]
+			if cls then onPick(CM.cmRgbValue(CM.cmClassRGB(cls))) end
+		end)
+		D[prefix .. "ShadeTv"][i] = tv
+		items[#items + 1] = b
+	end
+	rows[#rows + 1] = CM.coGuiBox(items, prefix .. "Shades")
+	D[prefix .. "HexText"] = CM.coGuiText("", "mpCoDim")
+	D[prefix .. "HexInput"] = CM.coGuiInput(90)
+	rows[#rows + 1] = CM.coGuiBox({ D[prefix .. "HexText"], CM.coGuiText("exact #RRGGBB"), D[prefix .. "HexInput"], CM.coGuiButton("Use", function()
+		local typed = CM.coGuiGet(D[prefix .. "HexInput"])
+		local v = CM.cmHexColor(typed)
+		if not v then D.coHint = "type a colour like #1E90FF"; return end
+		CM.coGuiClear(D[prefix .. "HexInput"])
+		D[prefix .. "Hue"] = CM.coGuiHueOf(v)
+		onPick(v)
+	end) }, prefix .. "Exact")
 	return rows
 end
--- mark the chosen colour (X) and the ones other companies use (-, the sim refuses them)
+-- The picker's state each refresh: the shade row follows the hue shown, the chosen
+-- colour is marked X, a colour that looks like another company's "-" (the sim
+-- refuses those), and the exact line shows the chosen colour's code.
 function CM.coGuiMarkColor(D, prefix, chosen, st, self)
-	local taken = {}
-	for _, it in ipairs(st and st.list or {}) do if it.cid ~= self and it.color then taken[it.color] = true end end
-	for idx, tv in pairs(D[prefix .. "ColorTv"] or {}) do
-		local mark = (idx == chosen and " X ") or (taken[idx] and " - ") or "   "
-		CM.coGuiSetText(D, prefix .. "C" .. idx, tv, mark)
-		-- !mpCoN paints text like the background: a mark is white (style sheet !mpCoPick)
-		CM.coGuiSetClass(D, prefix .. "K" .. idx, tv, mark ~= "   " and { "mpCo" .. idx, "mpCoPick" } or { "mpCo" .. idx })
+	local others = {}
+	for _, it in ipairs(st and st.list or {}) do if it.cid ~= self and it.color then others[#others + 1] = it.color end end
+	local function taken(v)
+		for _, o in ipairs(others) do if CM.cmColorDistance(o, v) < CM.CM_COLOR_NEAR then return true end end
+		return false
 	end
+	local function same(v) return chosen and CM.cmColorDistance(chosen, v) < 1 end
+	local function mark(key, tv, cls, m)
+		CM.coGuiSetText(D, key .. "T", tv, m)
+		-- !mpCoN paints text like the background: a mark is white (style sheet !mpCoPick)
+		CM.coGuiSetClass(D, key .. "K", tv, m ~= "   " and { "mpCo" .. cls, "mpCoPick" } or { "mpCo" .. cls })
+	end
+	if not D[prefix .. "Hue"] then D[prefix .. "Hue"] = chosen and CM.coGuiHueOf(chosen) or 1 end
+	local hue = D[prefix .. "Hue"]
+	for h, tv in pairs(D[prefix .. "HueTv"] or {}) do mark(prefix .. "H" .. h, tv, CM.cmGridClass(h, 3), h == hue and " > " or "   ") end
+	local ns = #CM.CM_GRID_SHADES
+	for i, tv in pairs(D[prefix .. "ShadeTv"] or {}) do
+		local cls = i <= ns and CM.cmGridClass(hue, i) or CM.cmGridClass(0, i - ns)
+		D[prefix .. "ShadeCls"][i] = cls
+		local v = CM.cmRgbValue(CM.cmClassRGB(cls))
+		mark(prefix .. "S" .. i, tv, cls, (same(v) and " X ") or (taken(v) and " - ") or "   ")
+	end
+	CM.coGuiSetText(D, prefix .. "Hex", D[prefix .. "HexText"], chosen and ("now " .. CM.cmColorHex(chosen)) or "no colour chosen")
 end
 -- who plays a company, for its row: "you", player names, else its members, else nobody
 function CM.coGuiWho(it, st)
@@ -234,9 +291,10 @@ function CM.coGuiBuild(D, box)
 		CM.coGuiSend("CMNAME " .. D.coMine .. " " .. CM.coGuiGet(D.coRename))
 		CM.coGuiClear(D.coRename)
 	end) }, "mpCompanyRename") }
-	for _, r in ipairs(CM.coGuiColorRows(D, "coSet", function(idx)
+	sl[#sl + 1] = CM.coGuiText("Colour", "mpCoDim")
+	for _, r in ipairs(CM.coGuiPicker(D, "coSet", function(v)
 		local me = D.coState and D.coMine and D.coState.byId[D.coMine]
-		if me then CM.coGuiSend(string.format("CMCOLOR %d %d %d", D.coMine, idx, me.paint and 1 or 0)) end
+		if me then CM.coGuiSend(string.format("CMCOLOR %d %d %d", D.coMine, v, me.paint and 1 or 0)) end
 	end)) do sl[#sl + 1] = r end
 	sl[#sl + 1] = D.coPaintBtn
 	sl[#sl + 1] = CM.coGuiBox({ CM.coGuiText("Password"), D.coPwInput, D.coPwBtn }, "mpCompanyPwRow")
@@ -265,7 +323,8 @@ function CM.coGuiBuild(D, box)
 	D.coNewPaintBtn, D.coNewPaintTv = CM.coGuiButtonTv("Paint vehicles: on", function() D.coNewPaint = not D.coNewPaint end)
 	D.coNewPw = CM.coGuiInput(180)
 	local nl = { CM.coGuiText("NEW COMPANY", "mpCoHead"), CM.coGuiBox({ CM.coGuiText("Name"), D.coNewName }, "mpCompanyNewName") }
-	for _, r in ipairs(CM.coGuiColorRows(D, "coNew", function(idx) D.coNewColor = idx end)) do nl[#nl + 1] = r end
+	nl[#nl + 1] = CM.coGuiText("Colour", "mpCoDim")
+	for _, r in ipairs(CM.coGuiPicker(D, "coNew", function(v) D.coNewColor = v end)) do nl[#nl + 1] = r end
 	nl[#nl + 1] = D.coNewPaintBtn
 	nl[#nl + 1] = CM.coGuiBox({ CM.coGuiText("Password (optional)"), D.coNewPw }, "mpCompanyNewPw")
 	nl[#nl + 1] = CM.coGuiBox({ CM.coGuiButton("Create", function()
@@ -274,7 +333,7 @@ function CM.coGuiBuild(D, box)
 		CM.coGuiSend(string.format("CMNEW %d %d %s%s", D.coNewColor or 0, D.coNewPaint and 1 or 0,
 			name ~= "" and CM.escName(name) or "-", pw ~= "" and (" " .. pw) or ""))
 		CM.coGuiClear(D.coNewName); CM.coGuiClear(D.coNewPw)
-		D.coNewOpen = false; D.coNewColor = nil
+		D.coNewOpen = false; D.coNewColor = nil; D.coNewHue = nil
 		D.coHint = "creating " .. (name ~= "" and name or "a company") .. "..."
 	end, "mpDashPrimary"), CM.coGuiButton("Cancel", function() D.coNewOpen = false end) }, "mpCompanyNewActions")
 	D.coNewBox = CM.coGuiBox(nl, "mpCompanyNew", "VERTICAL")
@@ -372,7 +431,7 @@ function CM.coGuiRefresh(D, kv, guiTick)
 	D.coState, D.coMine = st, st.mine
 	local me = st.mine and st.byId[st.mine]
 	-- your company
-	CM.coGuiSetClass(D, "swMine", D.coSwMine, "mpCo" .. tostring(me and me.color or 1))
+	CM.coGuiSetClass(D, "swMine", D.coSwMine, "mpCo" .. CM.cmColorClass(me and me.color or 1))
 	local mineText = me and me.name or (st.joined and "-" or "joining the session...")
 	if st.mode ~= "companies" and me then mineText = me.name .. "  (shared by everyone)" end
 	CM.coGuiSetText(D, "mineName", D.coNameText, " " .. mineText .. "   ")
@@ -388,7 +447,7 @@ function CM.coGuiRefresh(D, kv, guiTick)
 		row.cid = it and it.cid or nil
 		CM.coGuiShow(row.c, it ~= nil)
 		if it then
-			CM.coGuiSetClass(D, "rowSw" .. i, row.sw, "mpCo" .. tostring(it.color))
+			CM.coGuiSetClass(D, "rowSw" .. i, row.sw, "mpCo" .. CM.cmColorClass(it.color))
 			CM.coGuiSetClass(D, "rowSel" .. i, row.c, it.cid == D.coSel and "mpCoSel" or "mpCoRow")
 			CM.coGuiSetText(D, "rowTv" .. i, row.tv, it.name)
 			CM.coGuiSetText(D, "rowInfo" .. i, row.info, CM.coGuiWho(it, st))

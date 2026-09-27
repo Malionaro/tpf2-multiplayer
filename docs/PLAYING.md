@@ -192,6 +192,12 @@ removes the password, and opens or closes your stations to everyone. The game's 
 renames the company too. An unnamed company is named after the player who founded it:
 "<player>'s company", then "<player>'s 2nd company" and so on.
 
+Colours are free to choose. The colour picker shows 24 hues; pick one, then one of its five shades
+or a grey below. **Exact #RRGGBB** takes any colour typed as a hex code (for example `#1E90FF`).
+A colour that looks too much like another company's is marked with a dash and refused, so every
+company stays recognisable. Vehicles, vehicle icons and the Big Maps minimap show the exact colour;
+station icons and other companies' windows show the closest of the picker's colours.
+
 Your game remembers who plays which company by player (your Steam account, or your lobby name
 without Steam), not by lobby position, so a saved game gives everyone their own company back
 whoever hosts it. A save from before this version is handed out once as players join: the host

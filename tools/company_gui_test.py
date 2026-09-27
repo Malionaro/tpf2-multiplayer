@@ -100,10 +100,15 @@ function T.button(label)
   for _, w in ipairs(W.all) do if w.kind == "Button" and w.tv and w.tv.text == label then return w end end
 end
 function T.click(label) local b = T.button(label); assert(b, "no button " .. label); b.click() end
-function T.clickSwatch(prefix, idx)
-  local tv = D[prefix .. "ColorTv"][idx]
+local function clickTv(tv)
   for _, w in ipairs(W.all) do if w.kind == "Button" and w.tv == tv then w.click(); return true end end
   return false
+end
+-- the picker: a shade (1..5, then the greys 6..11) of the hue shown, or a hue (1..24)
+function T.clickSwatch(prefix, i) return clickTv(D[prefix .. "ShadeTv"][i]) end
+function T.clickHue(prefix, h) return clickTv(D[prefix .. "HueTv"][h]) end
+function T.shadeValue(prefix, i)
+  return CM.cmRgbValue(CM.cmClassRGB(D[prefix .. "ShadeCls"][i]))
 end
 -- how many places hold each widget: a layout's items, a component's layout, a button's label
 function T.twice()
@@ -207,15 +212,28 @@ T.click("+ NEW COMPANY")
 T.refresh(DASH)
 check("+ NEW COMPANY opens its form (and hides itself)", T.D.coNewBox.visible and not T.D.coSetBox.visible and not T.D.coNewToggle.visible)
 T.D.coNewName.text = "Blue Line"
-T.clickSwatch("coNew", 5)
+CMT = T.CM
+check("the picker has 24 hues and 5 shades + 6 greys", len(list(T.D.coNewHueTv.values())) == 24 and len(list(T.D.coNewShadeTv.values())) == 11)
+# the hue of another company's colour: a shade that looks like it is marked "-"
+other_color = [int(l.split(":")[1]) for l in DASH.splitlines() if l.startswith("co=") and not l.startswith("co=1:")][0]
+T.clickHue("coNew", CMT.coGuiHueOf(other_color))
+T.refresh(DASH)
+marks = [T.D.coNewShadeTv[i].text for i in range(1, 12)]
+check("colours that look like another company's are marked", " - " in marks, str(marks))
+check("the hue shown is marked", T.D.coNewHueTv[CMT.coGuiHueOf(other_color)].text == " > ")
+free = [i for i in range(1, 12) if T.D.coNewShadeTv[i].text == "   "][0]
+T.clickSwatch("coNew", free)
+want = int(T.shadeValue("coNew", free))
 T.D.coNewPaintBtn.click()          # (the settings have a button of the same name)
 T.refresh(DASH)
-check("the chosen colour is marked", T.D.coNewColorTv[5].text == " X ")
-check("colours other companies use are marked", T.D.coNewColorTv[2].text == " - ", T.D.coNewColorTv[2].text)
+check("the chosen colour is marked", T.D.coNewShadeTv[free].text == " X ", T.D.coNewShadeTv[free].text)
+check("its exact code is shown", T.D.coNewHexText.text == "now " + CMT.cmColorHex(want), T.D.coNewHexText.text)
+check("the swatch shows its own class", "mpCo" + str(int(T.D.coNewShadeCls[free])) == T.D.coNewShadeTv[free].classes[1], str(T.D.coNewShadeTv[free].classes[1]))
 check("the paint toggle reads off", T.D.coNewPaintTv.text == "PAINT VEHICLES: OFF", T.D.coNewPaintTv.text)
 T.D.coNewPw.text = "pw 2"
 T.click("CREATE")
-check("CREATE sends colour, paint, the escaped name and the password", T.injected() == "CMNEW 5 0 Blue%20Line pw 2\n")
+got = T.injected()
+check("CREATE sends colour, paint, the escaped name and the password", got == f"CMNEW {want} 0 Blue%20Line pw 2\n", got)
 
 # your company's settings, beside your company's name
 T.click("SETTINGS")
@@ -225,7 +243,16 @@ T.D.coRename.text = "Ada Rail"
 T.click("RENAME")
 check("RENAME sends the name", T.injected() == "CMNAME 1 Ada Rail\n")
 T.clickSwatch("coSet", 3)
-check("a colour click sends CMCOLOR with the paint as it is", T.injected() == "CMCOLOR 1 3 1\n")
+got = T.injected()
+check("a colour click sends CMCOLOR with the paint as it is", got == f"CMCOLOR 1 {int(T.shadeValue('coSet', 3))} 1\n", got)
+T.D.coSetHexInput.text = "#1E90FF"
+T.click("USE")
+got = T.injected()
+check("an exact #RRGGBB sends exactly that colour", got == f"CMCOLOR 1 {16777216 + 0x1E90FF} 1\n", got)
+T.D.coSetHexInput.text = "blue"
+T.click("USE")
+T.refresh(DASH)
+check("... and something else sends nothing and says how", T.injected() == "" and "#1E90FF" in T.D.coNote.text, T.D.coNote.text)
 T.click("PAINT VEHICLES: ON")
 check("the paint toggle turns it off", T.injected() == "CMCOLOR 1 1 0\n")
 check("no password button while nothing is typed and nothing is locked", not T.D.coPwBtn.visible)

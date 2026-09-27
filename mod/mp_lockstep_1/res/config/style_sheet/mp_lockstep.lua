@@ -25,6 +25,46 @@ local function companyColor(cid)
 	return r + m, g + m, b + m
 end
 
+-- THE PICKER'S GRID (free colours, 2026-09-27): classes 201..326 after the palette,
+-- 24 hues x 5 shades then 6 greys -- the numbers of companies.lua CM_GRID_* (the
+-- COMPANIES tab's swatches, and the nearest class a freely picked colour draws on
+-- station icons and windows). tools/company_color_test.py compares the two.
+local GRID_HUES = 24
+local GRID_SHADES = { { 0.30, 1.00 }, { 0.60, 1.00 }, { 0.90, 0.95 }, { 0.95, 0.72 }, { 0.95, 0.48 } }
+local GRID_GREYS = { 240, 190, 140, 95, 55, 20 }
+local CLASSES = 200 + GRID_HUES * #GRID_SHADES + #GRID_GREYS
+
+local function byte255(x) return math.floor(x * 255 + 0.5) end
+local function hsv(h, s, v)
+	h = h % 360
+	local C = v * s
+	local X = C * (1 - math.abs((h / 60) % 2 - 1))
+	local m = v - C
+	local r, g, b
+	if h < 60 then r, g, b = C, X, 0 elseif h < 120 then r, g, b = X, C, 0 elseif h < 180 then r, g, b = 0, C, X
+	elseif h < 240 then r, g, b = 0, X, C elseif h < 300 then r, g, b = X, 0, C else r, g, b = C, 0, X end
+	return byte255(r + m), byte255(g + m), byte255(b + m)
+end
+-- a class's colour, 0..1: the palette (as 0..255 integers, like companies.lua), then the grid
+local function classColor(i)
+	local r, g, b
+	if i <= 200 then
+		r, g, b = companyColor(i)
+		r, g, b = byte255(r), byte255(g), byte255(b)
+	else
+		local k = i - 201
+		local ns = #GRID_SHADES
+		if k < GRID_HUES * ns then
+			local sh = GRID_SHADES[k % ns + 1]
+			r, g, b = hsv(math.floor(k / ns) * (360 / GRID_HUES), sh[1], sh[2])
+		else
+			local grey = GRID_GREYS[k - GRID_HUES * ns + 1]
+			r, g, b = grey, grey, grey
+		end
+	end
+	return r / 255, g / 255, b / 255
+end
+
 -- THE HUD ICON GLYPH, RECOLOURED WITHOUT TOUCHING THE BLUE BOX (2026-09-16).
 -- Each station/depot icon is ONE image (~65% blue box, ~15% white glyph), so a
 -- backgroundColor modulate darkens the whole box -- not wanted. Instead the box
@@ -103,8 +143,8 @@ function data()
 		})
 	end
 
-	for cid = 1, 200 do
-		local r, g, b = companyColor(cid)
+	for cid = 1, CLASSES do
+		local r, g, b = classColor(cid)
 		a("!mpCo" .. cid, {
 			backgroundColor = { r, g, b, 1.0 },
 			color = { r, g, b, 1.0 },

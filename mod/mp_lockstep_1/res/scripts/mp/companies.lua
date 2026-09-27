@@ -49,7 +49,7 @@ require("mp.shared_infra")(CM, K)
 
 CM.CM_CFG_FILE = K.BASE .. "mp_company_cfg.txt"
 CM.CM_MAX = 200                    -- company ids 1..200; also the palette size (style sheet !mpCo1..200)
-CM.CM_PICK_COLORS = 24             -- the colours the menu offers (the first 24 palette entries)
+CM.CM_PICK_COLORS = 24             -- a new company's default colours (the first 24 palette entries)
 CM.CM_JOIN_HOLD_TICKS = 1800       -- a game whose own CMJOIN never lands releases its held actions after ~30 s
 CM.CM_LEAVE_GRACE = 10             -- seconds a letter must be gone from the roster before CMLEAVE
 
@@ -234,11 +234,29 @@ function CM.cmNameOf(cid)
 	local fname = co.founder and CM.co.names[co.founder] or co.fname
 	return CM.cmDisplayName(cid, co.name, fname, co.ord)
 end
+-- COLOURS (free choice, 2026-09-27). A company's colour is one number:
+--   1..200               a palette index (older saves, and the defaults)
+--   CM_RGB + 0xRRGGBB    any colour the player picked
+-- The paint, the vehicle icons (mp_company_perms.txt, 5th field) and the Big Maps
+-- minimap draw the exact colour. Station icons and foreign windows are styled by
+-- CLASS (!mpCoN / !mpWinCoN, res/config/style_sheet/mp_lockstep.lua), and a class
+-- cannot be made while the game runs: they draw the nearest of CM_CLASSES fixed
+-- colours -- the palette (1..200) and the picker's grid (201..CM_CLASSES).
 -- The palette: 20 distinct colours (Trubetskoy), then a golden-angle hue walk.
--- The same table is in the style sheet (!mpCo1..200), the slice's icon tint and
--- the Big Maps minimap (tools/palette_sync_test.py keeps them in step). A company
--- stores the palette INDEX it chose; everything draws that index.
+-- The same table is in the style sheet, the slice's icon tint and the Big Maps
+-- minimap (tools/palette_sync_test.py keeps them in step).
 CM.CM_COLORS = { {230,25,75}, {0,130,200}, {60,180,75}, {245,130,48}, {145,30,180}, {70,240,240}, {240,50,230}, {255,225,25}, {0,128,128}, {170,110,40}, {210,245,60}, {128,0,0}, {0,0,128}, {128,128,0}, {250,190,212}, {220,190,255}, {170,255,195}, {255,215,180}, {128,128,128}, {255,250,200} }
+CM.CM_RGB = 16777216               -- 0x1000000: a colour at or above it is CM_RGB + 0xRRGGBB
+-- the picker's grid: 24 hues x 5 shades, then 6 greys (the style sheet builds the
+-- same classes from the same numbers; tools/company_color_test.py compares them)
+CM.CM_GRID_HUES = 24
+CM.CM_GRID_SHADES = { { 0.30, 1.00 }, { 0.60, 1.00 }, { 0.90, 0.95 }, { 0.95, 0.72 }, { 0.95, 0.48 } }
+CM.CM_GRID_GREYS = { 240, 190, 140, 95, 55, 20 }
+CM.CM_CLASSES = CM.CM_MAX + CM.CM_GRID_HUES * #CM.CM_GRID_SHADES + #CM.CM_GRID_GREYS
+-- two colours closer than this (redmean distance, 0..~765) are one colour to the
+-- eye: a company may not pick one that close to another company's. The 20 palette
+-- colours are at least 68 apart; neighbouring pastel hues of the grid ~27..38.
+CM.CM_COLOR_NEAR = 40
 function CM.cmPaletteColor(idx)
 	idx = tonumber(idx) or 1
 	local c = CM.CM_COLORS[idx]
@@ -253,27 +271,111 @@ function CM.cmPaletteColor(idx)
 	elseif h < 240 then r, g, b = 0, X, C elseif h < 300 then r, g, b = X, 0, C else r, g, b = C, 0, X end
 	return r + m, g + m, b + m
 end
-function CM.cmClampColor(idx)
-	idx = math.floor(tonumber(idx) or 0)
-	if idx < 1 or idx > CM.CM_MAX then return nil end
-	return idx
+local function byte255(x) return math.floor(x * 255 + 0.5) end
+-- HSV (h in degrees, s and v 0..1) -> 0..255 integers
+function CM.cmHsv(h, s, v)
+	h = h % 360
+	local C = v * s
+	local X = C * (1 - math.abs((h / 60) % 2 - 1))
+	local m = v - C
+	local r, g, b
+	if h < 60 then r, g, b = C, X, 0 elseif h < 120 then r, g, b = X, C, 0 elseif h < 180 then r, g, b = 0, C, X
+	elseif h < 240 then r, g, b = 0, X, C elseif h < 300 then r, g, b = X, 0, C else r, g, b = C, 0, X end
+	return byte255(r + m), byte255(g + m), byte255(b + m)
 end
--- the palette index a company draws with (its id's colour until it picks one)
+-- the class of hue column `hue` (1..24) and shade row `shade` (1..5); the greys: hue 0, shade 1..6
+function CM.cmGridClass(hue, shade)
+	if hue == 0 then return CM.CM_MAX + CM.CM_GRID_HUES * #CM.CM_GRID_SHADES + shade end
+	return CM.CM_MAX + (hue - 1) * #CM.CM_GRID_SHADES + shade
+end
+-- a class's colour, 0..255 integers: the palette, then the grid
+function CM.cmClassRGB(i)
+	i = math.floor(tonumber(i) or 1)
+	if i <= CM.CM_MAX then
+		local r, g, b = CM.cmPaletteColor(math.max(1, i))
+		return byte255(r), byte255(g), byte255(b)
+	end
+	local k = i - CM.CM_MAX - 1
+	local ns = #CM.CM_GRID_SHADES
+	if k < CM.CM_GRID_HUES * ns then
+		local sh = CM.CM_GRID_SHADES[k % ns + 1]
+		return CM.cmHsv(math.floor(k / ns) * (360 / CM.CM_GRID_HUES), sh[1], sh[2])
+	end
+	local grey = CM.CM_GRID_GREYS[k - CM.CM_GRID_HUES * ns + 1] or 128
+	return grey, grey, grey
+end
+function CM.cmRgbValue(r, g, b)
+	local function c(x) x = math.floor(tonumber(x) or 0); return x < 0 and 0 or (x > 255 and 255 or x) end
+	return CM.CM_RGB + c(r) * 65536 + c(g) * 256 + c(b)
+end
+-- a stored colour -> 0..255 integers
+function CM.cmColorRGB(v)
+	v = tonumber(v) or 1
+	if v >= CM.CM_RGB then
+		local x = math.floor(v - CM.CM_RGB)
+		return math.floor(x / 65536) % 256, math.floor(x / 256) % 256, x % 256
+	end
+	return CM.cmClassRGB(v)
+end
+-- "#RRGGBB" <-> a stored colour
+function CM.cmColorHex(v) return string.format("#%02X%02X%02X", CM.cmColorRGB(v)) end
+function CM.cmHexColor(s)
+	local h = tostring(s or ""):match("^%s*#?(%x%x%x%x%x%x)%s*$")
+	if not h then return nil end
+	return CM.cmRgbValue(tonumber(h:sub(1, 2), 16), tonumber(h:sub(3, 4), 16), tonumber(h:sub(5, 6), 16))
+end
+-- how different two colours look (redmean), 0 = the same
+function CM.cmColorDistance(v1, v2)
+	local r1, g1, b1 = CM.cmColorRGB(v1)
+	local r2, g2, b2 = CM.cmColorRGB(v2)
+	local rm = (r1 + r2) / 2
+	local dr, dg, db = r1 - r2, g1 - g2, b1 - b2
+	return math.sqrt((2 + rm / 256) * dr * dr + 4 * dg * dg + (2 + (255 - rm) / 256) * db * db)
+end
+-- the class that draws a stored colour: a palette index is its own class, an
+-- exact colour the nearest one (cached: the same few colours are asked every tick)
+CM.cmClassCache = {}
+function CM.cmColorClass(v)
+	v = tonumber(v) or 1
+	if v < CM.CM_RGB then return CM.cmClampColor(v) or 1 end
+	local hit = CM.cmClassCache[v]
+	if hit then return hit end
+	local best, bestD = 1, math.huge
+	for i = 1, CM.CM_CLASSES do
+		local d = CM.cmColorDistance(v, i)
+		if d < bestD then best, bestD = i, d end
+	end
+	CM.cmClassCache[v] = best
+	return best
+end
+-- a valid stored colour, else nil
+function CM.cmClampColor(v)
+	v = math.floor(tonumber(v) or 0)
+	if v >= CM.CM_RGB and v <= CM.CM_RGB + 16777215 then return v end
+	if v < 1 or v > CM.CM_MAX then return nil end
+	return v
+end
+-- the colour a company draws with (its id's colour until it picks one)
 function CM.cmColorOf(cid)
 	local co = CM.cmCo(cid)
 	return (co and CM.cmClampColor(co.color)) or CM.cmClampColor(cid) or 1
 end
-function CM.cmCompanyColor(cid) return CM.cmPaletteColor(CM.cmColorOf(cid)) end
--- the company (other than `except`) that already draws with palette index idx
-function CM.cmColorHolder(idx, except)
-	for cid, co in pairs(CM.co.list) do if cid ~= except and co.color == idx then return cid end end
+-- its colour as 0..1 floats (the paint, the cursors)
+function CM.cmCompanyColor(cid)
+	local r, g, b = CM.cmColorRGB(CM.cmColorOf(cid))
+	return r / 255, g / 255, b / 255
+end
+-- the company (other than `except`) whose colour looks like colour v
+function CM.cmColorHolder(v, except)
+	for cid, co in pairs(CM.co.list) do
+		if cid ~= except and co.color and CM.cmColorDistance(co.color, v) < CM.CM_COLOR_NEAR then return cid end
+	end
 	return nil
 end
--- the first of the menu's colours no company uses (else the id's own)
+-- the first default colour no company's colour looks like (else a grid colour, else the id's own)
 function CM.cmFreeColor(cid)
-	local used = {}
-	for _, co in pairs(CM.co.list) do if co.color then used[co.color] = true end end
-	for i = 1, CM.CM_PICK_COLORS do if not used[i] then return i end end
+	for i = 1, CM.CM_PICK_COLORS do if not CM.cmColorHolder(i, cid) then return i end end
+	for i = CM.CM_MAX + 1, CM.CM_CLASSES do if not CM.cmColorHolder(i, cid) then return CM.cmRgbValue(CM.cmClassRGB(i)) end end
 	return CM.cmClampColor(cid) or 1
 end
 
@@ -352,16 +454,17 @@ function CM.cmOpenFromCode(code)
 	if code ~= "-" then for v in code:gmatch("%d+") do set[tonumber(v)] = true end end
 	return set
 end
--- mp_company_perms.txt, for the slice: the player entity of every company (with
--- the palette index it draws, a fourth field older DLLs ignore) and what each
--- company's stations are open to. Rewritten only when its text changes.
+-- mp_company_perms.txt, for the slice: the player entity of every company, the
+-- style class its station icons and windows draw (4th field) and its exact colour
+-- (5th, RRGGBB hex: the vehicle icons), and what each company's stations are open
+-- to. Rewritten only when its text changes.
 function CM.cmWritePerms()
 	if CM.cmMode ~= "companies" then return end
 	local lines = {}
 	local cids = {}
 	for cid in pairs(CM.cmCompanyPid or {}) do if CM.cmCo(cid) then cids[#cids + 1] = cid end end
 	table.sort(cids)
-	for _, cid in ipairs(cids) do lines[#lines + 1] = string.format("pid %s %d %d", tostring(CM.cmCompanyPid[cid]), cid, CM.cmColorOf(cid)) end
+	for _, cid in ipairs(cids) do lines[#lines + 1] = string.format("pid %s %d %d %s", tostring(CM.cmCompanyPid[cid]), cid, CM.cmColorClass(CM.cmColorOf(cid)), CM.cmColorHex(CM.cmColorOf(cid)):sub(2)) end
 	-- this game's own player entity: the Linux window wash is for other companies only
 	local human = CM.cmHuman()
 	if human then lines[#lines + 1] = "me " .. tostring(human) end
@@ -394,7 +497,7 @@ end
 -- mp_company_map.txt: this instance's company -> player entity -> name -> colour,
 -- for other mods (the Big Maps minimap). Entity ids are this instance's own.
 --   me=<my company id>
---   <cid>=<pid>=<name, percent-escaped>=<palette index>
+--   <cid>=<pid>=<name, percent-escaped>=<style class>=<RRGGBB>
 function CM.cmWriteCompanyMap()
 	if CM.cmMode ~= "companies" then
 		if CM.cmMapWritten ~= "" then
@@ -407,7 +510,7 @@ function CM.cmWriteCompanyMap()
 	local lines = { "me=" .. tostring(CM.cmMyCompany or 1) }
 	for _, cid in ipairs(CM.cmIds()) do
 		local pid = CM.cmCompanyPid[cid]
-		if pid then lines[#lines + 1] = cid .. "=" .. tostring(pid) .. "=" .. CM.escName(CM.cmNameOf(cid)) .. "=" .. CM.cmColorOf(cid) end
+		if pid then lines[#lines + 1] = cid .. "=" .. tostring(pid) .. "=" .. CM.escName(CM.cmNameOf(cid)) .. "=" .. CM.cmColorClass(CM.cmColorOf(cid)) .. "=" .. CM.cmColorHex(CM.cmColorOf(cid)):sub(2) end
 	end
 	local text = table.concat(lines, "\n") .. "\n"
 	if text == CM.cmMapWritten then return end
@@ -1495,12 +1598,14 @@ function CM.execCompanyCmd(c)
 		CM.cmApplyNames()
 	elseif c.op == "CMCOLOR" then
 		local color = CM.cmClampColor(c.color) or it.color
-		local holder = CM.cmColorHolder(color, cid)
-		if holder then return CM.cmNote(string.format("%s already uses that colour", CM.cmNameOf(holder))) end
+		-- a new colour must not look like another company's (keeping the old one while
+		-- the paint toggles is always fine, even an old save's close pair)
+		local holder = color ~= it.color and CM.cmColorHolder(color, cid)
+		if holder then return CM.cmNote(string.format("that colour looks too much like %s's", CM.cmNameOf(holder))) end
 		local paint = (c.paint == nil) and it.paint or (tonumber(c.paint) ~= 0)
 		local repaint = paint and (not it.paint or color ~= it.color)
 		it.color, it.paint = color, paint
-		CM.cmNote(string.format("%s: colour %d, vehicles %s", CM.cmNameOf(cid), color, paint and "painted in it" or "keep their own colours"))
+		CM.cmNote(string.format("%s: colour %s, vehicles %s", CM.cmNameOf(cid), CM.cmColorHex(color), paint and "painted in it" or "keep their own colours"))
 		if repaint then CM.cmRepaint(cid) end
 	elseif c.op == "CMPW" then
 		local h = c.pw; if h == nil or h == "" or h == "-" or h == 0 then h = nil end

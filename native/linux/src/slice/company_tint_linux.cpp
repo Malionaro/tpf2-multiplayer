@@ -114,13 +114,14 @@ const char* ClassPrefix()
 }
 
 // ---- pid -> company tint, from the mod's mp_company_perms.txt --------------
-// "pid <player> <company> [<palette index>]": the tint is the palette index the
-// company chose (2026-09-27), else its id. "me <player>" names this game's own
+// "pid <player> <company> [<class> [<RRGGBB>]]": the tint is the style class the
+// company's colour draws (2026-09-27), else its id; the 5th field is its exact
+// colour (free choice), which the vehicle icons draw. "me <player>" names this game's own
 // player entity (the window wash is for other companies only). Its own
 // two-second cache, so it never disturbs the station-permission one.
 static std::mutex permsMutex;
 static int permsCount = 0, permsMe = -1;
-static int permsPids[256], permsTints[256];
+static int permsPids[256], permsTints[256], permsRgbs[256];
 static void ReadPermsLocked()
 {
     static std::chrono::steady_clock::time_point last;
@@ -134,9 +135,13 @@ static void ReadPermsLocked()
     char line[160];
     while (fgets(line, sizeof(line), f)) {
         int a = 0, b = 0, c = 0;
-        const int got = sscanf(line, "pid %d %d %d", &a, &b, &c);
+        unsigned int rgb = 0;
+        const int got = sscanf(line, "pid %d %d %d %x", &a, &b, &c, &rgb);
         if (got >= 2 && permsCount < 256) {
-            permsPids[permsCount] = a; permsTints[permsCount] = (got == 3 && c >= 1 && c <= 200) ? c : b; permsCount++;
+            permsPids[permsCount] = a;
+            permsTints[permsCount] = (got >= 3 && c >= 1 && c <= 999) ? c : b;
+            permsRgbs[permsCount] = (got == 4 && rgb <= 0xFFFFFFu) ? static_cast<int>(rgb) : -1;
+            permsCount++;
         } else if (sscanf(line, "me %d", &a) == 1) {
             permsMe = a;
         }
@@ -149,6 +154,14 @@ int CompanyOfPid(int pid)
     ReadPermsLocked();
     for (int i = 0; i < permsCount; ++i) if (permsPids[i] == pid) return permsTints[i];
     return 0;   // coop, or a player with no company: no wash
+}
+// the company's exact colour as 0xRRGGBB, -1 when the file names none
+int CompanyRgbOfPid(int pid)
+{
+    std::lock_guard<std::mutex> lock(permsMutex);
+    ReadPermsLocked();
+    for (int i = 0; i < permsCount; ++i) if (permsPids[i] == pid) return permsRgbs[i];
+    return -1;
 }
 // this game's own player entity, -1 when the mod has not said
 int CompanyMePid()

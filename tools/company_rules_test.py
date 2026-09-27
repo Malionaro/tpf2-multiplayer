@@ -66,8 +66,34 @@ check("a company without a founder is 'Company N'", empty.cm().cmNameOf(7) == "C
 bob_color = A.cm().cmColorOf(2)
 s.request(A, f"CMCOLOR 1 {bob_color} 1")
 s.pump()
-check("a colour another company uses is refused", A.cm().cmColorOf(1) != bob_color and "already uses that colour" in str(A.cm().cmLastNote),
+check("a colour another company uses is refused", A.cm().cmColorOf(1) != bob_color and "looks too much like" in str(A.cm().cmLastNote),
       str(A.cm().cmLastNote))
+# free colours (2026-09-27): any RRGGBB, but not one that looks like another company's
+RGB = 16777216
+br, bg, bb = A.cm().cmColorRGB(bob_color)
+near = RGB + min(255, br + 6) * 65536 + bg * 256 + bb
+s.request(A, f"CMCOLOR 1 {near} 1")
+s.pump()
+check("a colour that only looks like another company's is refused too", A.cm().cmColorOf(1) != near and "looks too much like" in str(A.cm().cmLastNote),
+      str(A.cm().cmLastNote))
+exact = RGB + 0x7A3E9D
+s.request(A, f"CMCOLOR 1 {exact} 1")
+s.pump()
+check("an exact colour is taken on every machine", A.cm().cmColorOf(1) == exact and B.cm().cmColorOf(1) == exact,
+      f"{A.cm().cmColorOf(1)} / {B.cm().cmColorOf(1)}")
+check("... and shown as its code", A.cm().cmColorHex(exact) == "#7A3E9D" and "#7A3E9D" in str(A.cm().cmLastNote), str(A.cm().cmLastNote))
+r, g, b = A.cm().cmCompanyColor(1)
+check("the paint is that exact colour", (round(r * 255), round(g * 255), round(b * 255)) == (0x7A, 0x3E, 0x9D), str((r, g, b)))
+cls = A.cm().cmColorClass(exact)
+check("icons and windows draw the nearest class",
+      1 <= cls <= A.cm().CM_CLASSES and A.cm().cmColorDistance(exact, cls) == min(A.cm().cmColorDistance(exact, i) for i in range(1, int(A.cm().CM_CLASSES) + 1)), f"class {cls}")
+check("a picker colour is its own class", A.cm().cmColorClass(A.cm().cmRgbValue(*A.cm().cmClassRGB(250))) == 250)
+check("#rrggbb is read, anything else is not", A.cm().cmHexColor("1e90ff") == RGB + 0x1E90FF and A.cm().cmHexColor("#12345") is None)
+s.request(A, f"CMCOLOR 1 {exact} 0")
+s.pump()
+check("the paint toggles with the colour kept", A.cm().cmColorOf(1) == exact and not A.cm().cmCo(1).paint)
+s.request(A, f"CMCOLOR 1 {exact} 1")
+s.pump()
 s.request(A, f"CMNEW {bob_color} 1 Copycat")
 s.pump()
 cc = A.cm().cmMyCompany
@@ -97,11 +123,13 @@ check("the open text names the companies", A.cm().cmOpenText(1) == "Bob's 2nd co
 A.cm().cmWritePerms()
 perms = open(os.path.join(A.dir, "mp_company_perms.txt")).read()
 check("the perms file has the open line for the slice", f"open 1 {second}" in perms, perms)
+check("the perms file gives the slice the class and the exact colour", f"pid 100 1 {int(A.cm().cmColorClass(A.cm().cmColorOf(1)))} 7A3E9D" in perms, perms)
 
 # ---------------- the map file ----------------
 A.cm().cmWriteCompanyMap()
 mp = open(os.path.join(A.dir, "mp_company_map.txt")).read()
 check("mp_company_map.txt: me= then cid=pid=name=colour", mp.startswith("me=1\n") and "1=100=Ada%27s%20company=" in mp, mp)
+check("... the colour as class and exact RRGGBB", f"1=100=Ada%27s%20company={int(A.cm().cmColorClass(A.cm().cmColorOf(1)))}=7A3E9D" in mp, mp)
 coop = Machine("a", None, "Ada", ROSTER, lobby_mode="coop")
 coop.world({100: {}}, TOWN, 100)
 coop.boot()

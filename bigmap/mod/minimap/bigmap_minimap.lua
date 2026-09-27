@@ -449,14 +449,20 @@ local function readCompanyConfig()
                 local companyOf, names, colors, me = {}, {}, {}, nil
                 pcall(function()
                     for line in m:lines() do
-                        -- "<cid>=<pid>=<name>[=<palette index>]" (the index since 2026-09-27:
-                        -- the colour the company chose in the Multiplayer window)
+                        -- "<cid>=<pid>=<name>[=<palette index>[=<RRGGBB>]]" (the index since
+                        -- 2026-09-27: the colour the company chose in the Multiplayer window;
+                        -- the RRGGBB since free colours, the exact one)
                         local cid, pid, rest = line:match("^(%d+)=(%d+)=(.*)$")
                         if cid then
-                            local name, color = rest:match("^([^=]*)=(%d+)$")
+                            local name, color, hex = rest:match("^([^=]*)=(%d+)=(%x%x%x%x%x%x)$")
+                            if not name then name, color = rest:match("^([^=]*)=(%d+)$") end
                             companyOf[tonumber(pid)] = tonumber(cid)
                             names[tonumber(cid)] = unescape(name or rest)
-                            colors[tonumber(cid)] = tonumber(color)
+                            if hex then
+                                colors[tonumber(cid)] = { tonumber(hex:sub(1, 2), 16) / 255, tonumber(hex:sub(3, 4), 16) / 255, tonumber(hex:sub(5, 6), 16) / 255 }
+                            else
+                                colors[tonumber(cid)] = tonumber(color)
+                            end
                         else
                             me = tonumber(line:match("^me=(%d+)")) or me
                         end
@@ -553,7 +559,9 @@ local function describeOwners(owners)
         local pid = owners[i]
         local cid = companyOf[pid]
         local r, g, b
-        if cid and cfg.colors and cfg.colors[cid] then
+        if cid and cfg.colors and type(cfg.colors[cid]) == "table" then
+            r, g, b = cfg.colors[cid][1], cfg.colors[cid][2], cfg.colors[cid][3]
+        elseif cid and cfg.colors and cfg.colors[cid] then
             r, g, b = paletteColor(cfg.colors[cid])
         else
             r, g, b = companyColor(cid or rank[pid])

@@ -190,8 +190,15 @@ the header of that file has the rules).
   journal entries.
 - **In game.** The COMPANIES tab (`companies_gui.lua`, GUI state) reads the sim's `co=` dash lines
   and writes requests into the inject file; `CM.cmRequest` hashes passwords and schedules
-  `CMNEW`, `CMSWITCH`, `CMDEL` (with the company that takes over), `CMNAME`, `CMCOLOR` (palette
-  index, vehicle paint), `CMPW` and `CMOPEN`. A company's id is chosen at the stamp.
+  `CMNEW`, `CMSWITCH`, `CMDEL` (with the company that takes over), `CMNAME`, `CMCOLOR` (colour,
+  vehicle paint), `CMPW` and `CMOPEN`. A company's id is chosen at the stamp.
+- **Colours.** A company's colour is one number: 1..200 a palette index (older saves), or
+  `CM_RGB` (0x1000000) + 0xRRGGBB for a colour picked freely. The paint, the vehicle icons (the
+  perms file's RRGGBB) and the minimap draw it exactly. Station icons and foreign windows are
+  styled by class, and classes are fixed when the game starts: they draw the nearest of 326
+  (`!mpCo1..326`: the palette, then the picker's 24 hues x 5 shades and 6 greys, built alike in
+  `companies.lua` and the style sheet, checked by `tools/company_color_test.py`). A colour
+  closer than `CM_COLOR_NEAR` (redmean distance) to another company's is refused at the stamp.
 - **Saved state.** The registry (v2) and this machine's entity map ride in the save. Letters are
   kept only when the lobby still puts the same player on them (a hot join). A v1 save is migrated:
   its companies as they were, its players claimed as they join (the host takes the save's own
@@ -215,8 +222,8 @@ All runtime files are in the data folder, `%LOCALAPPDATA%\tpf2mp\data\` (the env
 | `tpf2_speed.txt` | mod | bridge | fractional speed target |
 | `tpf2_sync_save.txt`, `tpf2_sync_sent.txt` | mod / menu | menu / mod | the hot-join save handshake |
 | `mp_company_cfg.txt` | menu, at START | mod | the lobby's mode and this player's company chip (what its `CMJOIN` asks for) |
-| `mp_company_perms.txt` | mod | slice | `pid <entity> <company> <palette index>` per company, `me <entity>`, `open <company> <*|-|ids>`: the tints and the station gate |
-| `mp_company_map.txt` | mod | other mods (Big Maps minimap) | `me=<company>`, then `<company>=<entity>=<name>=<palette index>` |
+| `mp_company_perms.txt` | mod | slice | `pid <entity> <company> <style class> <RRGGBB>` per company, `me <entity>`, `open <company> <*|-|ids>`: the tints and the station gate |
+| `mp_company_map.txt` | mod | other mods (Big Maps minimap) | `me=<company>`, then `<company>=<entity>=<name>=<style class>=<RRGGBB>` |
 | `tpf2_steam.txt` | bridge | mod | this machine's SteamID64: the player key in `CMJOIN` |
 | `mp_company_<L>.log` | mod | people | companies, crossing and plan decisions |
 | `tpf2_bridge.log` | bridge | people; forwarded to the host's merged lobby log | connection events and every line sent and received (first 200 characters) |
