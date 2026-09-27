@@ -11,11 +11,11 @@ Stable update based on 0.7.0.5, for Windows, Proton and the native Linux game. E
 - **Chat messages wrap** instead of being cut off, in the lobby and in the game.
 - **OPEN LOGS after a crash** now includes the crashed run's crash dumps and its multiplayer logs, not only the next run's.
 - **A session no longer starts without the bridge.** When the multiplayer bridge did not load, chat worked but nothing that was built reached the other players; the panel now says why and does not start the session.
-- **Releases show the two launchers.** The release page carries the Windows and Linux launchers; the install files are in the packages release with the same tag.
+- **Releases show the two launchers first.** The release page carries the Windows and Linux launchers, and beside them the direct installers: the MSI, the Proton script and the native Linux installer.
 
 ### Update
 
-Use the launcher: **Update & play** (Windows and Linux). Launchers up to 1.2.0 cannot install this release: update the launcher first (Settings, or download it from this page). Manual install files (MSI, Linux package, Proton script, checksums) are in the packages release. All participants need the same version.
+Use the launcher: **Update & play** (Windows and Linux), or install directly: the MSI on Windows, install_proton.sh under Proton, the native .run on Linux. All participants need the same version.
 
 ### Known limitations
 
