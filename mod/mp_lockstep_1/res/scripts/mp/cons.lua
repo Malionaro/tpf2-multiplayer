@@ -1747,72 +1747,117 @@ function CM.constructionAt(x, y, maxDist)
 	return found
 end
 
-function CM.pollConstructionRemovals()
-	local ok, err = pcall(function()
-		for key, rec in pairs(CM.consByKey) do
-			if conStillThere(rec) then
+-- One tracked construction, checked for a demolish. Two consecutive misses a few ticks
+-- apart make a demolish, so a one-frame remove/re-add gap is not read as one.
+local function removalCheck(key, rec)
+	if conStillThere(rec) then
+		demolishMiss[key] = nil
+	else
+		local kx, ky = tostring(key):match("^(%-?[%d%.]+)/(%-?[%d%.]+)$")
+		local x, y = tonumber(kx), tonumber(ky)
+		-- An upgrade replacement stands ON the spot (the key is rounded to
+		-- 0.1 m); a neighbour 6 m away is not it -- a bulldozed fence
+		-- segment's record lived on because the next segment was in reach.
+		if x and CM.constructionAt(x, y, 1) then
+			-- something is still there: an upgrade replacement; let
+			-- pollNewConstructions re-adopt it. Not a demolish.
+			demolishMiss[key] = nil
+		else
+			demolishMiss[key] = (demolishMiss[key] or 0) + 1
+			if demolishMiss[key] >= 2 then
 				demolishMiss[key] = nil
-			else
-				local kx, ky = tostring(key):match("^(%-?[%d%.]+)/(%-?[%d%.]+)$")
-				local x, y = tonumber(kx), tonumber(ky)
-				-- An upgrade replacement stands ON the spot (the key is rounded to
-				-- 0.1 m); a neighbour 6 m away is not it -- a bulldozed fence
-				-- segment's record lived on because the next segment was in reach.
-				if x and CM.constructionAt(x, y, 1) then
-					-- something is still there: an upgrade replacement; let
-					-- pollNewConstructions re-adopt it. Not a demolish.
-					demolishMiss[key] = nil
+				if expectedEdit[key] or CM.expectedCons[key] then
+					-- upgrade/replay in flight -- but a STALE flag here
+					-- silently suppresses a real demolish forever
+					-- (suspected one-off 2026-08-29: bulldoze logged by
+					-- the hook, mod said nothing). Tripwire it.
+					log(string.format("con: %s is gone but edit/replay flags block the demolish (edit=%s cons=%s) -- will re-check",
+						key, tostring(expectedEdit[key] ~= nil), tostring(CM.expectedCons[key] ~= nil)))
+				elseif CM.expectedDemolish[key] then
+					CM.expectedDemolish[key] = nil
+					CM.consByKey[key] = nil
+					log(string.format("con: %s bulldozed by replay -- not echoed", key))
 				else
-					demolishMiss[key] = (demolishMiss[key] or 0) + 1
-					if demolishMiss[key] >= 2 then
-						demolishMiss[key] = nil
-						if expectedEdit[key] or CM.expectedCons[key] then
-							-- upgrade/replay in flight -- but a STALE flag here
-							-- silently suppresses a real demolish forever
-							-- (suspected one-off 2026-08-29: bulldoze logged by
-							-- the hook, mod said nothing). Tripwire it.
-							log(string.format("con: %s is gone but edit/replay flags block the demolish (edit=%s cons=%s) -- will re-check",
-								key, tostring(expectedEdit[key] ~= nil), tostring(CM.expectedCons[key] ~= nil)))
-						elseif CM.expectedDemolish[key] then
-							CM.expectedDemolish[key] = nil
-							CM.consByKey[key] = nil
-							log(string.format("con: %s bulldozed by replay -- not echoed", key))
-						else
-							CM.consByKey[key] = nil
-							if x and y then
-								-- no re-arm here: execDemolish re-arms on every instance at the
-								-- DEMOLISH's stamp (the originator's skip path included)
-								CM.scheduleLocal("DEMOLISH", { x = x, y = y })
-								log(string.format("con: DEMOLISH captured at %.1f,%.1f (%s)", x, y, tostring(rec.file)))
-							else
-								log("con: a construction vanished but its position is unknown (key=" .. tostring(key) .. ")")
-							end
-						end
+					CM.consByKey[key] = nil
+					if x and y then
+						-- no re-arm here: execDemolish re-arms on every instance at the
+						-- DEMOLISH's stamp (the originator's skip path included)
+						CM.scheduleLocal("DEMOLISH", { x = x, y = y })
+						log(string.format("con: DEMOLISH captured at %.1f,%.1f (%s)", x, y, tostring(rec.file)))
+					else
+						log("con: a construction vanished but its position is unknown (key=" .. tostring(key) .. ")")
 					end
 				end
 			end
 		end
+	end
+end
+
+-- One tracked construction, checked for an in-place edit: the safety net for a
+-- change the slice did not capture (its CONUP covers a player's module edits).
+local function editCheck(key, rec)
+	if conStillThere(rec) then
+		local e = game.interface.getEntity(rec.id)
+		local pstr = (e and e.params) and CM.ser(e.params) or "{}"
+		if pstr ~= rec.params then
+			rec.params = pstr
+			if expectedEdit[key] then
+				expectedEdit[key] = nil      -- our own replay changed it in place
+			else
+				shipEdit(rec.file, key, pstr)
+			end
+		end
+	end
+end
+
+-- Every tracked construction at once (a catch-up, and the offline tests).
+function CM.pollConstructionRemovals()
+	local ok, err = pcall(function()
+		for key, rec in pairs(CM.consByKey) do removalCheck(key, rec) end
 	end)
 	if not ok then log("con removal poll error: " .. tostring(err)) end
 end
 
 function CM.scanConstructionEdits()
 	local ok, err = pcall(function()
-		for key, rec in pairs(CM.consByKey) do
-			if conStillThere(rec) then
-				local e = game.interface.getEntity(rec.id)
-				local pstr = (e and e.params) and CM.ser(e.params) or "{}"
-				if pstr ~= rec.params then
-					rec.params = pstr
-					if expectedEdit[key] then
-						expectedEdit[key] = nil      -- our own replay changed it in place
-					else
-						shipEdit(rec.file, key, pstr)
-					end
-				end
-			end
-		end
+		for key, rec in pairs(CM.consByKey) do editCheck(key, rec) end
 	end)
 	if not ok then log("con edit scan error: " .. tostring(err)) end
 end
+
+-- SPREAD OVER THEIR CYCLE (2026-09-23). update() ran each check over EVERY
+-- tracked construction in one tick: on a live 409-construction map the edit scan
+-- (an entity read and a params serialization each) froze the simulation for
+-- ~525 ms every 30 ticks, and the removal poll took ~21 ms every 3rd tick --
+-- 23 of the update's 24 ms on average (PERF lanes, 2026-09-24). Now a cycle
+-- takes a snapshot of the keys and works through ceil(n / every) of them per
+-- tick, so every construction is still checked once per cycle of the same
+-- length -- the same checks, the same cadence per construction, in slices. A
+-- construction added mid-cycle joins the next one; one removed is skipped; a
+-- record replaced under its key is checked as it is now. Each check has its own
+-- pcall, so one unreadable construction no longer ends the pass for the rest.
+local function sliced(every, check, what)
+	local cycle, pos, per = {}, 1, 0
+	return function()
+		if pos > #cycle then
+			cycle, pos = {}, 1
+			for key in pairs(CM.consByKey) do cycle[#cycle + 1] = key end
+			table.sort(cycle)
+			per = math.ceil(#cycle / every)
+		end
+		local stop = math.min(#cycle, pos + per - 1)
+		local from = pos
+		pos = stop + 1
+		for i = from, stop do
+			local key = cycle[i]
+			local rec = CM.consByKey[key]
+			if rec then
+				local ok, err = pcall(check, key, rec)
+				if not ok then log("con " .. what .. " error at " .. tostring(key) .. ": " .. tostring(err)) end
+			end
+		end
+	end
+end
+CM.pollConstructionRemovalsSlice = sliced(K.REMOVAL_POLL_EVERY, removalCheck, "removal poll")
+CM.scanConstructionEditsSlice = sliced(K.CON_EDIT_SCAN_EVERY, editCheck, "edit scan")
 end
