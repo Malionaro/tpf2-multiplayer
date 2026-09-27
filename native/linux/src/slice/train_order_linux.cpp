@@ -30,10 +30,13 @@ uintptr_t NameComponent(uintptr_t world, int32_t id, int type)
         !SliceReadT(world + 0x80, &pools) || !pools ||
         !SliceReadT(pools + size_t(type) * 8, &pool) || !pool) return 0;
     SliceVec slots{};
-    if (!SliceReadStdVector(entities + size_t(id) * 24, 8, 4096, &slots)) return 0;
+    if (!SliceReadStdVectorShape(entities + size_t(id) * 24, 8, 4096, &slots)) return 0;
+    // All pairs in one guarded read, not one per pair (every road Add names each
+    // vehicle on the edge; 2026-09-27).
+    static thread_local int32_t pairs[4096][2];
+    if (slots.count && !SliceRead(slots.begin, pairs, slots.count * 8)) return 0;
     for (size_t i = 0; i < slots.count; ++i) {
-        int32_t pair[2];
-        if (!SliceRead(slots.begin + i * 8, pair, sizeof(pair))) return 0;
+        const int32_t* pair = pairs[i];
         if (pair[0] != type) continue;
         if (pair[1] < 0) return 0;
         uintptr_t data = 0;

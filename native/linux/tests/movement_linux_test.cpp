@@ -1,6 +1,7 @@
 #include <cassert>
 #include <sys/mman.h>
 #include <dlfcn.h>
+#include <unistd.h>
 #include <array>
 #include <algorithm>
 #include "slice/slice_core_internal.h"
@@ -57,6 +58,28 @@ static void ForeignCallback() { FilteredHook(0,0,0); }
 int main(int argc,char** argv)
 {
     assert(SliceReadInit());
+    {   // SliceReadable batches its page probes: ranges across the 256-page batch, and a
+        // hole on either side of it, give the page-at-a-time answer
+        const size_t pg=size_t(sysconf(_SC_PAGESIZE)), pages=600;
+        uint8_t* m=static_cast<uint8_t*>(mmap(nullptr,pg*pages,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0));
+        assert(m!=MAP_FAILED);
+        const uintptr_t b=uintptr_t(m);
+        assert(SliceReadable(b+5,pg*pages-10));
+        assert(SliceReadable(b+pg*256-1,2));                  // the batch edge
+        assert(SliceReadable(b+pg*3,pg));                     // exactly one page
+        assert(mprotect(m+pg*300,pg,PROT_NONE)==0);           // in the second batch
+        assert(!SliceReadable(b+5,pg*pages-10));
+        assert(!SliceReadable(b+pg*299+pg-1,2));
+        assert(SliceReadable(b,pg*300));                      // stops just short of the hole
+        assert(SliceReadable(b+pg*301,pg*299));
+        assert(mprotect(m+pg*10,pg,PROT_NONE)==0);            // in the first batch
+        assert(!SliceReadable(b,pg*20));
+        assert(SliceReadable(b+pg*11,pg*289));
+        SliceVec v{}; uintptr_t hdr[3]={b,b+pg*20,b+pg*20};
+        assert(!SliceReadStdVector(uintptr_t(hdr),4,SIZE_MAX,&v) && !v.begin && !v.count);
+        assert(SliceReadStdVectorShape(uintptr_t(hdr),4,SIZE_MAX,&v) && v.begin==b && v.count==pg*5);
+        munmap(m,pg*pages);
+    }
     std::vector<uint8_t> self(0x60);
     // Observers copy their inputs; no writes to the family, even on refusal.
     std::vector<std::array<int32_t,5>> nodes{{9,0,0,0,0},{3,0,0,0,0}};

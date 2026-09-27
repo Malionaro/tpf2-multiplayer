@@ -167,11 +167,13 @@ uintptr_t RoadEdgeData(uintptr_t mgr, uint64_t edge)
 {
     const int32_t id0=int32_t(uint32_t(edge)), id1=int32_t(uint32_t(edge>>32));
     if (!mgr || id0<0 || id1<0) return 0;
+    // Shape checks only: the two whole-world vectors run to megabytes, and a page walk
+    // of them on every Add was 1,000 syscalls (2026-09-27). The element is read guarded.
     SliceVec indices{}, groups{}, datas{};
     int32_t group=-1;
-    if (!SliceReadStdVector(mgr+0x30,4,1u<<26,&indices) || size_t(id0)>=indices.count ||
+    if (!SliceReadStdVectorShape(mgr+0x30,4,1u<<26,&indices) || size_t(id0)>=indices.count ||
         !SliceReadT(indices.begin+size_t(id0)*4,&group) || group<0) return 0;
-    if (!SliceReadStdVector(mgr+0x48,72,1u<<24,&groups) || size_t(group)>=groups.count) return 0;
+    if (!SliceReadStdVectorShape(mgr+0x48,72,1u<<24,&groups) || size_t(group)>=groups.count) return 0;
     if (!SliceReadStdVector(groups.begin+size_t(group)*72,32,1u<<24,&datas) || size_t(id1)>=datas.count) return 0;
     return datas.begin+size_t(id1)*32;
 }

@@ -593,8 +593,34 @@ bool SliceReadable(uintptr_t addr, size_t n)
 {
     if (n == 0) return true;
     if (addr < 0x1000 || addr + n < addr) return false;
-    const uintptr_t page = (uintptr_t)sysconf(_SC_PAGESIZE);
+    static const uintptr_t page = (uintptr_t)sysconf(_SC_PAGESIZE);
     const uintptr_t last = addr + n - 1;
+    const int mech = SliceReadMechanism();
+    if (mech == kSliceReadVm) {
+        // One byte of every page, up to 256 pages a syscall: the kernel stops at the
+        // first unreadable page, so a short count is a refusal. A page at a time cost a
+        // syscall per 4 KiB, 1,000 of them for each road vehicle's edge Add on the
+        // dedicated server (2026-09-27).
+        constexpr size_t kBatch = 256;
+        char sink[kBatch];
+        iovec local[kBatch], remote[kBatch];
+        uintptr_t pg = addr;
+        while (true) {
+            size_t k = 0;
+            for (; k < kBatch; ++k) {
+                local[k] = { sink + k, 1 };
+                remote[k] = { (void*)pg, 1 };
+                const uintptr_t next = (pg & ~(page - 1)) + page;
+                if (next > last || next <= pg) { ++k; pg = 0; break; }
+                pg = next;
+            }
+            ssize_t got;
+            do { got = process_vm_readv(Pid(), local, (unsigned long)k, remote, (unsigned long)k, 0); }
+            while (got < 0 && errno == EINTR);
+            if (got != (ssize_t)k) return false;
+            if (!pg) return true;
+        }
+    }
     char b;
     if (!SliceRead(addr, &b, 1)) return false;
     for (uintptr_t pg = (addr & ~(page - 1)) + page; pg <= last && pg > addr; pg += page)
@@ -696,7 +722,7 @@ bool SliceReadStdString(uintptr_t obj, char* out, size_t cap, size_t* lenOut, si
     return true;
 }
 
-bool SliceReadStdVector(uintptr_t obj, size_t stride, size_t maxCount, SliceVec* out)
+bool SliceReadStdVectorShape(uintptr_t obj, size_t stride, size_t maxCount, SliceVec* out)
 {
     out->begin = 0;
     out->count = 0;
@@ -713,9 +739,15 @@ bool SliceReadStdVector(uintptr_t obj, size_t stride, size_t maxCount, SliceVec*
         return false;
     }
     if (count > maxCount) return false;
-    if (count && !SliceReadable(b, e - b)) return false;
     out->begin = b;
     out->count = count;
+    return true;
+}
+
+bool SliceReadStdVector(uintptr_t obj, size_t stride, size_t maxCount, SliceVec* out)
+{
+    if (!SliceReadStdVectorShape(obj, stride, maxCount, out)) return false;
+    if (out->count && !SliceReadable(out->begin, out->count * stride)) { *out = {}; return false; }
     return true;
 }
 
