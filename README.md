@@ -400,3 +400,8 @@ The [dev `24b8f636` integration](docs/linux/UPSTREAM_dev_24b8f636.md) guards sha
 loading so a missing or failing module disables multiplayer without aborting
 game loading. Offline Lua and native tests pass; no live gameplay result is
 claimed. Version remains 0.7.0.7.
+
+The [dev `ea15a156` integration](docs/linux/UPSTREAM_dev_ea15a156.md) batches native guarded page
+reads and avoids scanning whole-world vectors for a single road edge. Name
+slot pairs are copied in one guarded read. Version remains 0.7.0.7; local
+validation uses memory fixtures and ELF checks, with no in-game timing claim.

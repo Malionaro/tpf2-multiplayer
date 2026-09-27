@@ -143,6 +143,9 @@ inline bool SliceReadStdString(uintptr_t obj, std::string* out)
 // number of `stride`, count <= maxCount and the element range readable.
 struct SliceVec { uintptr_t begin; size_t count; };
 bool SliceReadStdVector(uintptr_t obj, size_t stride, size_t maxCount, SliceVec* out);
+// The same checks without the readability pass, for a caller that reads one element
+// of a large vector through a guarded read anyway.
+bool SliceReadStdVectorShape(uintptr_t obj, size_t stride, size_t maxCount, SliceVec* out);
 // std::map / std::set (_Rb_tree): header at obj+8, node_count at obj+0x28; a node
 // is {color, parent +8, left +0x10, right +0x18, value +0x20}. Visits values in key
 // order. Fails (after visiting what it reached) on an unreadable link, a count

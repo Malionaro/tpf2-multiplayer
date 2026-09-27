@@ -1,4 +1,5 @@
 #include <cassert>
+#include <unistd.h>
 #include <array>
 #include <algorithm>
 #include "slice/slice_core_internal.h"
@@ -58,6 +59,27 @@ int main()
     assert(NameComponent(w, 3, type) == 0);
     assert(NameComponent(w, -1, type) == 0);
     assert(NameComponent(w, 0, -1) == 0);
+    // The batched copy must find a late pair and honor its fixed scratch cap.
+    entities[0].assign(4096, Pair{7, 0});
+    entities[0].back() = {type, 0};
+    assert(NameComponent(w, 0, type) == uintptr_t(&flat[0]));
+    entities[0].push_back({type, 0});
+    assert(NameComponent(w, 0, type) == 0);
+    entities[0].clear();
+    assert(NameComponent(w, 0, type) == 0); // no stale thread-local pairs
+    entities[0] = {{type, 0}};
+    // A matching first pair cannot hide an unreadable tail in the bulk read.
+    const size_t pg = size_t(sysconf(_SC_PAGESIZE));
+    auto* m = static_cast<uint8_t*>(mmap(nullptr, pg*2, PROT_READ|PROT_WRITE,
+                                      MAP_PRIVATE|MAP_ANONYMOUS, -1, 0));
+    assert(m != MAP_FAILED);
+    Pair match{type, 0}; memcpy(m+pg-8, &match, 8);
+    uintptr_t header[]{uintptr_t(m+pg-8), uintptr_t(m+pg+8), uintptr_t(m+pg+8)};
+    Put(world, 0x98, uintptr_t(header));
+    assert(mprotect(m+pg, pg, PROT_NONE) == 0);
+    assert(NameComponent(w, 0, type) == 0);
+    assert(munmap(m, pg*2) == 0);
+    Put(world, 0x98, uintptr_t(entities.data()));
     std::vector<std::array<int32_t, 3>> records{{0,0,0}, {1,0,0}, {2,0,0}, {3,0,0}, {4,0,0}};
     Put(self, 8, uintptr_t(&records));
     const uintptr_t s = uintptr_t(self.data());
