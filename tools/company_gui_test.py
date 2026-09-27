@@ -140,23 +140,26 @@ rows = T.rows()
 print(rows)
 lines = rows.split("\n")
 check("one row per company", len(lines) == 3, str(len(lines)))
-check("yours first, selected, with its colour", lines[0].startswith("> Ada's company | yours") and "mpCo" in lines[0], lines[0])
-check("Bob's row says who plays it", "Bob's company" in rows and "playing: Bob" in rows, rows)
-check("a locked company says so", "Vault" in rows and "[locked]" in rows, rows)
+check("yours first, with its colour and 'you'", lines[0].startswith("Ada's company | you") and "mpCo" in lines[0], lines[0])
+check("... and highlighted as selected", T.D.coRows[1].c.classes[1] == "mpCoSel", str(T.D.coRows[1].c.classes[1]))
+check("Bob's row says who plays it", "Bob's company | Bob" in rows, rows)
+check("a locked company says so", "Vault" in rows and "locked" in rows, rows)
 check("your company's name is shown", "Ada's company" in T.D.coNameText.text, T.D.coNameText.text)
 check("no widget is placed twice (a button's label is not also a row item)", T.twice() == "", T.twice())
+check("nothing but the list is open at first", not T.D.coSelBox.visible and not T.D.coNewBox.visible and not T.D.coSetBox.visible and not T.D.coDelBox.visible)
 
 # select Bob's row, refresh: the selection stays
 bob_row = next(i for i in range(1, 4) if "Bob's company" in T.D.coRows[i].tv.text)
 T.D.coRows[bob_row].btn.click()
 T.refresh(DASH)
-check("a selected row stays selected across a refresh", T.D.coSel == 2 and T.D.coRows[bob_row].tv.text.startswith("> "), str(T.D.coSel))
-check("the actions for another company show", T.D.coSelActions.visible and T.D.coSelOpenRow.visible)
+check("a selected row stays selected across a refresh", T.D.coSel == 2 and T.D.coRows[bob_row].c.classes[1] == "mpCoSel", str(T.D.coSel))
+check("the selected company's panel shows", T.D.coSelBox.visible and T.D.coSelText.text == "BOB'S COMPANY", T.D.coSelText.text)
 check("no password field for an open company", not T.D.coSelPwRow.visible)
 T.click("SWITCH TO IT")
 check("SWITCH TO IT asks for that company", T.injected() == "CMSWITCH 2\n")
-T.click("ALLOW")
-check("its vehicles at your stations: allow", T.injected() == "CMOPEN 2 1\n")
+check("one toggle for its vehicles at your stations", T.D.coAccessTv.text == "DENY" and "may stop" in T.D.coSelOpenText.text, T.D.coAccessTv.text)
+T.click("DENY")
+check("... which denies them", T.injected() == "CMOPEN 2 0\n")
 
 # the locked company: its password goes with the switch
 vault_row = next(i for i in range(1, 4) if "Vault" in T.D.coRows[i].tv.text)
@@ -170,49 +173,51 @@ check("... which goes with the switch, and the field is cleared", T.injected() =
 # delete it into Bob's company
 T.click("DELETE...")
 T.refresh(DASH)
-check("DELETE... opens the confirmation", T.D.coDelBox.visible and "Delete Vault?" in T.D.coDelText.text, T.D.coDelText.text)
+check("DELETE... replaces the actions with the confirmation", T.D.coDelBox.visible and not T.D.coSelBox.visible and "Delete Vault?" in T.D.coDelText.text, T.D.coDelText.text)
 combo = T.D.coDelCombo
 check("the takeover choice lists the other companies", len(list(combo["items"].values())) == 2, str(list(combo["items"].values())))
 combo.changed(1)       # the second entry
 into = T.D.coDelInto
 T.D.coSelPwInput.text = "x"
-T.click("DELETE NOW")
-check("DELETE NOW names the company that takes over", T.injected() == f"CMDEL {vault} {into} x\n" and into in (1, 2))
+T.click("DELETE")
+check("DELETE names the company that takes over", T.injected() == f"CMDEL {vault} {into} x\n" and into in (1, 2))
 
 # a new company
-T.click("NEW COMPANY")
+T.click("+ NEW COMPANY")
 T.refresh(DASH)
-check("NEW COMPANY opens its form", T.D.coNewBox.visible and not T.D.coSetBox.visible)
+check("+ NEW COMPANY opens its form (and hides itself)", T.D.coNewBox.visible and not T.D.coSetBox.visible and not T.D.coNewToggle.visible)
 T.D.coNewName.text = "Blue Line"
-# pick colour 5 by clicking its swatch button
 T.clickSwatch("coNew", 5)
-T.click("VEHICLES IN COMPANY COLOUR: ON")
+T.D.coNewPaintBtn.click()          # (the settings have a button of the same name)
 T.refresh(DASH)
 check("the chosen colour is marked", T.D.coNewColorTv[5].text == " X ")
-check("the paint toggle reads off", T.D.coNewPaintTv.text == "VEHICLES IN COMPANY COLOUR: OFF", T.D.coNewPaintTv.text)
+check("colours other companies use are marked", T.D.coNewColorTv[2].text == " - ", T.D.coNewColorTv[2].text)
+check("the paint toggle reads off", T.D.coNewPaintTv.text == "PAINT VEHICLES: OFF", T.D.coNewPaintTv.text)
 T.D.coNewPw.text = "pw 2"
 T.click("CREATE")
 check("CREATE sends colour, paint, the escaped name and the password", T.injected() == "CMNEW 5 0 Blue%20Line pw 2\n")
 
-# your company's settings
-T.click("YOUR COMPANY SETTINGS")
+# your company's settings, beside your company's name
+T.click("SETTINGS")
 T.refresh(DASH)
-check("the settings open", T.D.coSetBox.visible and not T.D.coNewBox.visible)
+check("SETTINGS opens them", T.D.coSetBox.visible and not T.D.coNewBox.visible and T.D.coSetToggleTv.text == "CLOSE")
 T.D.coRename.text = "Ada Rail"
 T.click("RENAME")
 check("RENAME sends the name", T.injected() == "CMNAME 1 Ada Rail\n")
 T.clickSwatch("coSet", 3)
 check("a colour click sends CMCOLOR with the paint as it is", T.injected() == "CMCOLOR 1 3 1\n")
-T.click("VEHICLES IN COMPANY COLOUR: ON")
+T.click("PAINT VEHICLES: ON")
 check("the paint toggle turns it off", T.injected() == "CMCOLOR 1 1 0\n")
+check("no password button while nothing is typed and nothing is locked", not T.D.coPwBtn.visible)
 T.D.coPwInput.text = "s3cret"
+T.refresh(DASH)
+check("... SET once something is typed", T.D.coPwBtn.visible and T.D.coPwBtnTv.text == "SET", T.D.coPwBtnTv.text)
 T.click("SET")
 check("SET sends the password", T.injected() == "CMPW 1 s3cret\n")
-T.click("REMOVE")
-check("REMOVE clears it", T.injected() == "CMPW 1\n")
-T.click("DENY EVERYONE")
-check("station access for everyone", T.injected() == "CMOPEN * 0\n")
-check("the station access line", T.D.coOpenText.text == "Your stations are open to: everyone", T.D.coOpenText.text)
+check("the station line and its one toggle", T.D.coOpenText.text == "Your stations: open to everyone" and T.D.coOpenBtnTv.text == "CLOSE TO ALL",
+      T.D.coOpenText.text + " / " + T.D.coOpenBtnTv.text)
+T.click("CLOSE TO ALL")
+check("CLOSE TO ALL closes them", T.injected() == "CMOPEN * 0\n")
 check("the note is the sim's last word", T.D.coNote.text.strip() != "")
 
 print("FAILED: " + ", ".join(fails) if fails else "ALL PASS: the COMPANIES tab shows the registry and asks for the right things")

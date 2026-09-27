@@ -71,6 +71,12 @@ function data()
 	a("!mpDashFooter", { padding = { 8, 0, 0, 0 }, borderWidth = { 1, 0, 0, 0 }, borderColor = ssu.makeColor(255, 255, 255, 22) })
 	a("!mpDashFooter TextView", { fontSize = 12, color = ssu.makeColor(190, 205, 218) })
 	a("!mpDashBody TextView!mpDashAlert", { padding = { 8, 10, 8, 10 }, backgroundColor = ssu.makeColor(130, 75, 10, 130) })
+	-- the COMPANIES tab (companies_gui.lua): section headings, secondary text, the
+	-- company rows and the selected one
+	a("!mpDashBody TextView!mpCoHead", { fontSize = 11, color = ssu.makeColor(150, 175, 195), padding = { 8, 4, 2, 4 } })
+	a("!mpDashBody TextView!mpCoDim", { fontSize = 12, color = ssu.makeColor(170, 188, 202) })
+	a("!mpDashBody !mpCoRow", { padding = { 1, 4, 1, 4 } })
+	a("!mpDashBody !mpCoSel", { padding = { 1, 4, 1, 4 }, backgroundColor = ssu.makeColor(255, 255, 255, 28) })
 
 	a("!mpDashBody TextView", { padding = { 3, 4, 3, 4 } })
 	a("!mpDashTabs TextView", { padding = { 4, 8, 4, 8 }, fontSize = 13 })

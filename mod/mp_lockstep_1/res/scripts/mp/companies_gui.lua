@@ -6,18 +6,27 @@
 -- file, which inject.lua hands to CM.cmRequest. Nothing here decides anything; the
 -- sim refuses what it must and says why in conote=.
 --
--- Layout, top to bottom:
---   Your company  [colour] name              (and a note after importing an older save)
---   the companies: one row each -- colour, name, who plays it, lock; a row's button selects it
---   for the selected company (not yours): SWITCH TO IT, DELETE..., its vehicles at your stations
---     (a locked company asks for its password first)
---   DELETE...: which company takes over everything, then DELETE NOW / CANCEL
---   NEW COMPANY: name, colour, vehicle paint on/off, optional password, CREATE
---   YOUR COMPANY SETTINGS: rename, colour, vehicle paint, password, station access
---   the last note from the sim
+-- Layout, top to bottom (few buttons: one per decision, toggles instead of pairs,
+-- the main action of a section in the primary style, the rest plain):
+--   YOUR COMPANY    [colour] name ........................ SETTINGS
+--                   (a note after importing an older save)
+--   COMPANIES       one row per company: [colour] name (the row's button selects
+--                   it; the selected row is highlighted) and, dimmed, who plays it
+--                   + NEW COMPANY
+--   <selected>      another company: its password when locked, SWITCH TO IT,
+--                   DELETE..., and one toggle for its vehicles at your stations
+--   delete          which company takes over everything; DELETE / CANCEL
+--   new company     name, colour, vehicle paint toggle, password; CREATE / CANCEL
+--   settings        name + RENAME, colour, vehicle paint toggle, password with
+--                   ONE button (set, or remove when the field is empty), and one
+--                   toggle opening / closing your stations to everyone
+--   the last note from the sim, dimmed
 -- A row pool (CM.CO_GUI_ROWS) is built once and shown / hidden: rebuilding
 -- widgets on every refresh lost clicks, and a rebuilt ComboBox reset the
 -- selection (the old tab jumped to the first company on any label change).
+-- Style classes (res/config/style_sheet/mp_lockstep.lua): mpCoHead (section
+-- heading), mpCoDim (secondary text), mpCoSel (the selected row), mpDashPrimary
+-- (the section's main button), mpCoN / mpCoPick (colours).
 return function(CM, K, log)
 CM.CO_GUI_ROWS = 16
 
@@ -72,18 +81,24 @@ end
 
 -- ---------- widgets ----------
 local function gui() return api.gui end
-function CM.coGuiText(s) return gui().comp.TextView.new(s or "") end
--- a button and its label (the label is needed to change the text later)
-function CM.coGuiButtonTv(label, fn)
+function CM.coGuiText(s, cls)
+	local tv = gui().comp.TextView.new(s or "")
+	if cls then pcall(function() tv:setStyleClassList({ cls }) end) end
+	return tv
+end
+-- a button and its label (the label is needed to change the text later); cls
+-- "mpDashPrimary" marks a section's main action
+function CM.coGuiButtonTv(label, fn, cls)
 	local tv = gui().comp.TextView.new((label:gsub("^%s+", ""):gsub("%s+$", "")):upper())
 	local b = gui().comp.Button.new(tv, true)
+	if cls then pcall(function() b:setStyleClassList({ cls }) end) end
 	b:onClick(function() local ok, err = pcall(fn); if not ok then print("[ls-gui] companies: " .. tostring(err)) end end)
 	return b, tv
 end
 -- a button alone: ONE return value, so it can sit inside a table constructor (a second
 -- value, the label, would land in the row as a widget of its own)
-function CM.coGuiButton(label, fn)
-	local b = CM.coGuiButtonTv(label, fn)
+function CM.coGuiButton(label, fn, cls)
+	local b = CM.coGuiButtonTv(label, fn, cls)
 	return b
 end
 function CM.coGuiInput(minW)
@@ -103,8 +118,8 @@ function CM.coGuiClear(inp)
 	if not inp then return end
 	if not pcall(function() inp:setText("", false) end) then pcall(function() inp:setText("") end) end
 end
-function CM.coGuiRow(items, name)
-	local l = gui().layout.BoxLayout.new("HORIZONTAL")
+function CM.coGuiBox(items, name, orient)
+	local l = gui().layout.BoxLayout.new(orient or "HORIZONTAL")
 	for _, it in ipairs(items) do l:addItem(it) end
 	local c = gui().comp.Component.new(name or "mpCompanyRow")
 	c:setLayout(l)
@@ -117,12 +132,16 @@ function CM.coGuiSetText(D, key, w, s)
 end
 function CM.coGuiSetClass(D, key, w, cls)
 	D.coShown = D.coShown or {}
-	if w and D.coShown[key] ~= cls then D.coShown[key] = cls; pcall(function() w:setStyleClassList({ cls }) end) end
+	local sig = type(cls) == "table" and table.concat(cls, " ") or tostring(cls)
+	if w and D.coShown[key] ~= sig then
+		D.coShown[key] = sig
+		pcall(function() w:setStyleClassList(type(cls) == "table" and cls or { cls }) end)
+	end
 end
 function CM.coGuiSwatch() return gui().comp.TextView.new("     ") end
--- a row of colour buttons (the first CM_PICK_COLORS palette entries); onPick(idx)
+-- the colour swatches (the first CM_PICK_COLORS palette entries); onPick(idx)
 function CM.coGuiColorRows(D, prefix, onPick)
-	local rows, buttons = {}, {}
+	local rows, labels = {}, {}
 	local per = 12
 	for r = 0, math.ceil(CM.CM_PICK_COLORS / per) - 1 do
 		local items = {}
@@ -132,118 +151,107 @@ function CM.coGuiColorRows(D, prefix, onPick)
 			local b = gui().comp.Button.new(tv, true)
 			b:onClick(function() local ok, err = pcall(onPick, idx); if not ok then print("[ls-gui] companies: " .. tostring(err)) end end)
 			pcall(function() tv:setStyleClassList({ "mpCo" .. idx }) end)
-			buttons[idx] = tv
+			labels[idx] = tv
 			items[#items + 1] = b
 		end
-		rows[#rows + 1] = CM.coGuiRow(items, prefix .. "Colors" .. r)
+		rows[#rows + 1] = CM.coGuiBox(items, prefix .. "Colors" .. r)
 	end
-	D[prefix .. "ColorTv"] = buttons
+	D[prefix .. "ColorTv"] = labels
 	return rows
 end
--- mark the chosen colour in a colour row
 -- mark the chosen colour (X) and the ones other companies use (-, the sim refuses them)
 function CM.coGuiMarkColor(D, prefix, chosen, st, self)
-	D.coShown = D.coShown or {}
 	local taken = {}
 	for _, it in ipairs(st and st.list or {}) do if it.cid ~= self and it.color then taken[it.color] = true end end
 	for idx, tv in pairs(D[prefix .. "ColorTv"] or {}) do
 		local mark = (idx == chosen and " X ") or (taken[idx] and " - ") or "   "
 		CM.coGuiSetText(D, prefix .. "C" .. idx, tv, mark)
 		-- !mpCoN paints text like the background: a mark is white (style sheet !mpCoPick)
-		local key = prefix .. "K" .. idx
-		local want = mark ~= "   " and "pick" or "plain"
-		if D.coShown[key] ~= want then
-			D.coShown[key] = want
-			pcall(function() tv:setStyleClassList(want == "pick" and { "mpCo" .. idx, "mpCoPick" } or { "mpCo" .. idx }) end)
-		end
+		CM.coGuiSetClass(D, prefix .. "K" .. idx, tv, mark ~= "   " and { "mpCo" .. idx, "mpCoPick" } or { "mpCo" .. idx })
 	end
+end
+-- who plays a company, for its row: "you", player names, else its members, else nobody
+function CM.coGuiWho(it, st)
+	local who = {}
+	for _, l in ipairs(it.playing) do who[#who + 1] = CM.playerNameOf(l) end
+	local s
+	if #who > 0 then s = table.concat(who, ", ")
+	elseif it.members ~= "" then s = it.members .. " (away)"
+	else s = "nobody" end
+	if it.cid == st.mine then s = "you" .. (#who > 1 and (" + " .. (#who - 1)) or "") end
+	if it.locked then s = s .. "  -  locked" end
+	return s
 end
 
 -- ---------- build (once per window) ----------
 function CM.coGuiBuild(D, box)
 	local V = gui().layout.BoxLayout.new("VERTICAL")
-	-- your company
+	-- your company, with the way into its settings beside it
+	V:addItem(CM.coGuiText("YOUR COMPANY", "mpCoHead"))
 	D.coSwMine = CM.coGuiSwatch()
 	D.coNameText = CM.coGuiText("")
-	V:addItem(CM.coGuiRow({ CM.coGuiText("Your company"), D.coSwMine, D.coNameText }, "mpCompanyMine"))
-	D.coMigText = CM.coGuiText("")
+	D.coSetToggle, D.coSetToggleTv = CM.coGuiButtonTv("Settings", function() D.coSetOpen = not D.coSetOpen; D.coNewOpen = false end)
+	V:addItem(CM.coGuiBox({ D.coSwMine, D.coNameText, D.coSetToggle }, "mpCompanyMine"))
+	D.coMigText = CM.coGuiText("", "mpDashAlert")
 	V:addItem(D.coMigText)
+	-- your company's settings (hidden until SETTINGS)
+	D.coRename = CM.coGuiInput(220)
+	D.coPaintBtn, D.coPaintTv = CM.coGuiButtonTv("Paint vehicles: on", function()
+		local me = D.coState and D.coMine and D.coState.byId[D.coMine]
+		if me then CM.coGuiSend(string.format("CMCOLOR %d %d %d", D.coMine, me.color, me.paint and 0 or 1)) end
+	end)
+	D.coPwInput = CM.coGuiInput(180)
+	D.coPwBtn, D.coPwBtnTv = CM.coGuiButtonTv("Set password", function()
+		if not D.coMine then return end
+		local pw = CM.coGuiGet(D.coPwInput)
+		CM.coGuiSend("CMPW " .. D.coMine .. (pw ~= "" and (" " .. pw) or ""))
+		CM.coGuiClear(D.coPwInput)
+	end)
+	D.coOpenText = CM.coGuiText("")
+	D.coOpenBtn, D.coOpenBtnTv = CM.coGuiButtonTv("Close to all", function()
+		local me = D.coState and D.coMine and D.coState.byId[D.coMine]
+		if me then CM.coGuiSend("CMOPEN * " .. (me.open == "*" and "0" or "1")) end
+	end)
+	local sl = { CM.coGuiBox({ CM.coGuiText("Name"), D.coRename, CM.coGuiButton("Rename", function()
+		if not D.coMine then return end
+		CM.coGuiSend("CMNAME " .. D.coMine .. " " .. CM.coGuiGet(D.coRename))
+		CM.coGuiClear(D.coRename)
+	end) }, "mpCompanyRename") }
+	for _, r in ipairs(CM.coGuiColorRows(D, "coSet", function(idx)
+		local me = D.coState and D.coMine and D.coState.byId[D.coMine]
+		if me then CM.coGuiSend(string.format("CMCOLOR %d %d %d", D.coMine, idx, me.paint and 1 or 0)) end
+	end)) do sl[#sl + 1] = r end
+	sl[#sl + 1] = D.coPaintBtn
+	sl[#sl + 1] = CM.coGuiBox({ CM.coGuiText("Password"), D.coPwInput, D.coPwBtn }, "mpCompanyPwRow")
+	sl[#sl + 1] = CM.coGuiBox({ D.coOpenText, D.coOpenBtn }, "mpCompanyOpenAll")
+	D.coSetBox = CM.coGuiBox(sl, "mpCompanySettings", "VERTICAL")
+	V:addItem(D.coSetBox)
 	-- the companies
-	V:addItem(CM.coGuiText("Companies"))
+	V:addItem(CM.coGuiText("COMPANIES", "mpCoHead"))
 	D.coRows = {}
 	for i = 1, CM.CO_GUI_ROWS do
 		local row = {}
 		row.sw = CM.coGuiSwatch()
 		row.btn, row.tv = CM.coGuiButtonTv("-", function() if row.cid then D.coSel = row.cid; D.coDelOpen = false; D.coHint = nil end end)
-		row.info = CM.coGuiText("")
-		row.c = CM.coGuiRow({ row.sw, row.btn, row.info }, "mpCompanyListRow" .. i)
+		row.info = CM.coGuiText("", "mpCoDim")
+		row.c = CM.coGuiBox({ row.sw, row.btn, row.info }, "mpCompanyListRow" .. i)
 		V:addItem(row.c)
 		D.coRows[i] = row
 	end
-	D.coMoreText = CM.coGuiText("")
+	D.coMoreText = CM.coGuiText("", "mpCoDim")
 	V:addItem(D.coMoreText)
-	-- the selected company
-	D.coSelText = CM.coGuiText("")
-	V:addItem(D.coSelText)
-	D.coSelPwInput = CM.coGuiInput(180)
-	D.coSelPwRow = CM.coGuiRow({ CM.coGuiText("Its password"), D.coSelPwInput }, "mpCompanySelPw")
-	V:addItem(D.coSelPwRow)
-	D.coSwitchBtn = CM.coGuiButton("Switch to it", function()
-		if not D.coSel or D.coSel == D.coMine then return end
-		local pw = CM.coGuiGet(D.coSelPwInput)
-		CM.coGuiSend("CMSWITCH " .. D.coSel .. (pw ~= "" and (" " .. pw) or ""))
-		CM.coGuiClear(D.coSelPwInput)
-		D.coHint = "switching..."
-	end)
-	D.coDelBtn = CM.coGuiButton("Delete...", function()
-		if not D.coSel or D.coSel == D.coMine then return end
-		D.coDelOpen = true; D.coDelInto = D.coMine
-	end)
-	D.coSelActions = CM.coGuiRow({ D.coSwitchBtn, D.coDelBtn }, "mpCompanySelActions")
-	V:addItem(D.coSelActions)
-	D.coSelOpenText = CM.coGuiText("")
-	D.coAllowBtn = CM.coGuiButton("Allow", function() if D.coSel and D.coSel ~= D.coMine then CM.coGuiSend("CMOPEN " .. D.coSel .. " 1") end end)
-	D.coDenyBtn = CM.coGuiButton("Deny", function() if D.coSel and D.coSel ~= D.coMine then CM.coGuiSend("CMOPEN " .. D.coSel .. " 0") end end)
-	D.coSelOpenRow = CM.coGuiRow({ D.coSelOpenText, D.coAllowBtn, D.coDenyBtn }, "mpCompanySelOpen")
-	V:addItem(D.coSelOpenRow)
-	-- delete: who takes over
-	D.coDelText = CM.coGuiText("")
-	D.coDelPickL = gui().layout.BoxLayout.new("HORIZONTAL")
-	D.coDelPick = gui().comp.Component.new("mpCompanyDelPick")
-	D.coDelPick:setLayout(D.coDelPickL)
-	D.coDelNow = CM.coGuiButton("Delete now", function()
-		if not D.coSel or not D.coDelInto or D.coDelInto == D.coSel then return end
-		local pw = CM.coGuiGet(D.coSelPwInput)
-		CM.coGuiSend("CMDEL " .. D.coSel .. " " .. D.coDelInto .. (pw ~= "" and (" " .. pw) or ""))
-		CM.coGuiClear(D.coSelPwInput)
-		D.coDelOpen = false
-		D.coHint = "deleting..."
-	end)
-	D.coDelCancel = CM.coGuiButton("Cancel", function() D.coDelOpen = false end)
-	D.coDelBox = gui().comp.Component.new("mpCompanyDelete")
-	local dl = gui().layout.BoxLayout.new("VERTICAL")
-	dl:addItem(D.coDelText)
-	dl:addItem(CM.coGuiRow({ CM.coGuiText("Goes to"), D.coDelPick }, "mpCompanyDelInto"))
-	dl:addItem(CM.coGuiRow({ D.coDelNow, D.coDelCancel }, "mpCompanyDelActions"))
-	D.coDelBox:setLayout(dl)
-	V:addItem(D.coDelBox)
-	-- new company / settings toggles
-	D.coNewToggle = CM.coGuiButton("New company", function() D.coNewOpen = not D.coNewOpen; D.coSetOpen = false end)
-	D.coSetToggle = CM.coGuiButton("Your company settings", function() D.coSetOpen = not D.coSetOpen; D.coNewOpen = false end)
-	V:addItem(CM.coGuiRow({ D.coNewToggle, D.coSetToggle }, "mpCompanyToggles"))
-	-- new company
-	D.coNewBox = gui().comp.Component.new("mpCompanyNew")
-	local nl = gui().layout.BoxLayout.new("VERTICAL")
+	D.coNewToggle = CM.coGuiButton("+ New company", function() D.coNewOpen = not D.coNewOpen; D.coSetOpen = false end)
+	V:addItem(D.coNewToggle)
+	-- new company (hidden until + NEW COMPANY)
 	D.coNewName = CM.coGuiInput(220)
-	nl:addItem(CM.coGuiRow({ CM.coGuiText("Name"), D.coNewName }, "mpCompanyNewName"))
-	nl:addItem(CM.coGuiText("Colour"))
-	for _, r in ipairs(CM.coGuiColorRows(D, "coNew", function(idx) D.coNewColor = idx end)) do nl:addItem(r) end
 	D.coNewPaint = true
-	D.coNewPaintBtn, D.coNewPaintTv = CM.coGuiButtonTv("Vehicles in company colour: on", function() D.coNewPaint = not D.coNewPaint end)
-	nl:addItem(D.coNewPaintBtn)
+	D.coNewPaintBtn, D.coNewPaintTv = CM.coGuiButtonTv("Paint vehicles: on", function() D.coNewPaint = not D.coNewPaint end)
 	D.coNewPw = CM.coGuiInput(180)
-	nl:addItem(CM.coGuiRow({ CM.coGuiText("Password (optional)"), D.coNewPw }, "mpCompanyNewPw"))
-	nl:addItem(CM.coGuiRow({ CM.coGuiButton("Create", function()
+	local nl = { CM.coGuiText("NEW COMPANY", "mpCoHead"), CM.coGuiBox({ CM.coGuiText("Name"), D.coNewName }, "mpCompanyNewName") }
+	for _, r in ipairs(CM.coGuiColorRows(D, "coNew", function(idx) D.coNewColor = idx end)) do nl[#nl + 1] = r end
+	nl[#nl + 1] = D.coNewPaintBtn
+	nl[#nl + 1] = CM.coGuiBox({ CM.coGuiText("Password (optional)"), D.coNewPw }, "mpCompanyNewPw")
+	nl[#nl + 1] = CM.coGuiBox({ CM.coGuiButton("Create", function()
 		local name = CM.coGuiGet(D.coNewName)
 		local pw = CM.coGuiGet(D.coNewPw)
 		CM.coGuiSend(string.format("CMNEW %d %d %s%s", D.coNewColor or 0, D.coNewPaint and 1 or 0,
@@ -251,43 +259,55 @@ function CM.coGuiBuild(D, box)
 		CM.coGuiClear(D.coNewName); CM.coGuiClear(D.coNewPw)
 		D.coNewOpen = false; D.coNewColor = nil
 		D.coHint = "creating " .. (name ~= "" and name or "a company") .. "..."
-	end), CM.coGuiButton("Cancel", function() D.coNewOpen = false end) }, "mpCompanyNewActions"))
-	D.coNewBox:setLayout(nl)
+	end, "mpDashPrimary"), CM.coGuiButton("Cancel", function() D.coNewOpen = false end) }, "mpCompanyNewActions")
+	D.coNewBox = CM.coGuiBox(nl, "mpCompanyNew", "VERTICAL")
 	V:addItem(D.coNewBox)
-	-- your company settings
-	D.coSetBox = gui().comp.Component.new("mpCompanySettings")
-	local sl = gui().layout.BoxLayout.new("VERTICAL")
-	D.coRename = CM.coGuiInput(220)
-	sl:addItem(CM.coGuiRow({ CM.coGuiText("Name"), D.coRename, CM.coGuiButton("Rename", function()
-		if not D.coMine then return end
-		CM.coGuiSend("CMNAME " .. D.coMine .. " " .. CM.coGuiGet(D.coRename))
-		CM.coGuiClear(D.coRename)
-	end) }, "mpCompanyRename"))
-	sl:addItem(CM.coGuiText("Colour"))
-	for _, r in ipairs(CM.coGuiColorRows(D, "coSet", function(idx)
-		local me = D.coState and D.coMine and D.coState.byId[D.coMine]
-		if me then CM.coGuiSend(string.format("CMCOLOR %d %d %d", D.coMine, idx, me.paint and 1 or 0)) end
-	end)) do sl:addItem(r) end
-	D.coPaintBtn, D.coPaintTv = CM.coGuiButtonTv("Vehicles in company colour: on", function()
-		local me = D.coState and D.coMine and D.coState.byId[D.coMine]
-		if me then CM.coGuiSend(string.format("CMCOLOR %d %d %d", D.coMine, me.color, me.paint and 0 or 1)) end
+	-- the selected company (another one than yours)
+	D.coSelText = CM.coGuiText("", "mpCoHead")
+	D.coSelPwInput = CM.coGuiInput(180)
+	D.coSelPwRow = CM.coGuiBox({ CM.coGuiText("Its password"), D.coSelPwInput }, "mpCompanySelPw")
+	D.coSwitchBtn = CM.coGuiButton("Switch to it", function()
+		if not D.coSel or D.coSel == D.coMine then return end
+		local pw = CM.coGuiGet(D.coSelPwInput)
+		CM.coGuiSend("CMSWITCH " .. D.coSel .. (pw ~= "" and (" " .. pw) or ""))
+		CM.coGuiClear(D.coSelPwInput)
+		D.coHint = "switching..."
+	end, "mpDashPrimary")
+	D.coDelBtn = CM.coGuiButton("Delete...", function()
+		if not D.coSel or D.coSel == D.coMine then return end
+		D.coDelOpen = true; D.coDelInto = D.coMine
 	end)
-	sl:addItem(D.coPaintBtn)
-	D.coPwInput = CM.coGuiInput(180)
-	sl:addItem(CM.coGuiRow({ CM.coGuiText("Password"), D.coPwInput,
-		CM.coGuiButton("Set", function()
-			local pw = CM.coGuiGet(D.coPwInput)
-			if D.coMine and pw ~= "" then CM.coGuiSend("CMPW " .. D.coMine .. " " .. pw); CM.coGuiClear(D.coPwInput) end
-		end),
-		CM.coGuiButton("Remove", function() if D.coMine then CM.coGuiSend("CMPW " .. D.coMine) end end) }, "mpCompanyPwRow"))
-	D.coOpenText = CM.coGuiText("")
-	sl:addItem(D.coOpenText)
-	sl:addItem(CM.coGuiRow({ CM.coGuiButton("Allow everyone", function() CM.coGuiSend("CMOPEN * 1") end),
-		CM.coGuiButton("Deny everyone", function() CM.coGuiSend("CMOPEN * 0") end) }, "mpCompanyAllAccess"))
-	D.coSetBox:setLayout(sl)
-	V:addItem(D.coSetBox)
+	D.coSelActions = CM.coGuiBox({ D.coSwitchBtn, D.coDelBtn }, "mpCompanySelActions")
+	D.coSelOpenText = CM.coGuiText("", "mpCoDim")
+	D.coAccessBtn, D.coAccessTv = CM.coGuiButtonTv("Deny", function()
+		local me = D.coState and D.coMine and D.coState.byId[D.coMine]
+		if D.coSel and D.coSel ~= D.coMine and me then
+			CM.coGuiSend("CMOPEN " .. D.coSel .. " " .. (CM.coGuiOpenFor(me.open, D.coSel) and "0" or "1"))
+		end
+	end)
+	D.coSelOpenRow = CM.coGuiBox({ D.coSelOpenText, D.coAccessBtn }, "mpCompanySelOpen")
+	D.coSelBox = CM.coGuiBox({ D.coSelText, D.coSelPwRow, D.coSelActions, D.coSelOpenRow }, "mpCompanySelected", "VERTICAL")
+	V:addItem(D.coSelBox)
+	-- delete: who takes over
+	D.coDelText = CM.coGuiText("")
+	D.coDelPickL = gui().layout.BoxLayout.new("HORIZONTAL")
+	D.coDelPick = gui().comp.Component.new("mpCompanyDelPick")
+	D.coDelPick:setLayout(D.coDelPickL)
+	D.coDelNow = CM.coGuiButton("Delete", function()
+		if not D.coSel or not D.coDelInto or D.coDelInto == D.coSel then return end
+		local pw = CM.coGuiGet(D.coSelPwInput)
+		CM.coGuiSend("CMDEL " .. D.coSel .. " " .. D.coDelInto .. (pw ~= "" and (" " .. pw) or ""))
+		CM.coGuiClear(D.coSelPwInput)
+		D.coDelOpen = false
+		D.coHint = "deleting..."
+	end, "mpDashPrimary")
+	D.coDelBox = CM.coGuiBox({ D.coDelText,
+		CM.coGuiBox({ CM.coGuiText("Everything goes to"), D.coDelPick }, "mpCompanyDelInto"),
+		CM.coGuiBox({ D.coDelNow, CM.coGuiButton("Cancel", function() D.coDelOpen = false end) }, "mpCompanyDelActions") },
+		"mpCompanyDelete", "VERTICAL")
+	V:addItem(D.coDelBox)
 	-- the note
-	D.coNote = CM.coGuiText("")
+	D.coNote = CM.coGuiText("", "mpCoDim")
 	V:addItem(D.coNote)
 	D.coBox = gui().comp.Component.new("mpCompanies")
 	D.coBox:setLayout(V)
@@ -304,7 +324,7 @@ function CM.coGuiDelPick(D, st)
 	if sig == D.coDelSig then return end
 	D.coDelSig, D.coDelItems = sig, items
 	local cb = gui().comp.ComboBox.new()
-	for _, it in ipairs(items) do cb:addItem(it.name .. (it.cid == D.coMine and "  (yours)" or "") .. (it.locked and "  [locked]" or "")) end
+	for _, it in ipairs(items) do cb:addItem(it.name .. (it.cid == D.coMine and "  (yours)" or "") .. (it.locked and "  (locked)" or "")) end
 	D.coDelBuilding = true
 	cb:onIndexChanged(function(i)
 		if D.coDelBuilding then return end
@@ -329,12 +349,14 @@ function CM.coGuiRefresh(D, kv, guiTick)
 	if (guiTick % 30) == 0 or not D.coNamesRead then D.coNamesRead = true; pcall(CM.readPlayerNames) end
 	local st = CM.coGuiParse(kv)
 	D.coState, D.coMine = st, st.mine
-	local mine = st.mine and st.byId[st.mine]
+	local me = st.mine and st.byId[st.mine]
 	-- your company
-	CM.coGuiSetClass(D, "swMine", D.coSwMine, "mpCo" .. tostring(mine and mine.color or 1))
-	local mineText = mine and mine.name or (st.joined and "-" or "joining the session...")
-	if st.mode ~= "companies" and mine then mineText = mine.name .. "  (everyone shares it)" end
+	CM.coGuiSetClass(D, "swMine", D.coSwMine, "mpCo" .. tostring(me and me.color or 1))
+	local mineText = me and me.name or (st.joined and "-" or "joining the session...")
+	if st.mode ~= "companies" and me then mineText = me.name .. "  (shared by everyone)" end
 	CM.coGuiSetText(D, "mineName", D.coNameText, " " .. mineText .. "   ")
+	CM.coGuiShow(D.coSetToggle, me ~= nil)
+	CM.coGuiSetText(D, "setToggle", D.coSetToggleTv, D.coSetOpen and "CLOSE" or "SETTINGS")
 	CM.coGuiSetText(D, "mig", D.coMigText, st.migrated or "")
 	CM.coGuiShow(D.coMigText, st.migrated ~= "")
 	-- the selection survives every refresh; a deleted company falls back to yours
@@ -346,53 +368,54 @@ function CM.coGuiRefresh(D, kv, guiTick)
 		CM.coGuiShow(row.c, it ~= nil)
 		if it then
 			CM.coGuiSetClass(D, "rowSw" .. i, row.sw, "mpCo" .. tostring(it.color))
-			local label = (it.cid == D.coSel and "> " or "") .. it.name
-			CM.coGuiSetText(D, "rowTv" .. i, row.tv, label)
-			local who = {}
-			for _, l in ipairs(it.playing) do who[#who + 1] = CM.playerNameOf(l) end
-			local info = (it.cid == st.mine and "yours" or "")
-			if #who > 0 then info = info .. (info ~= "" and ", " or "") .. "playing: " .. table.concat(who, ", ")
-			elseif it.members ~= "" then info = info .. (info ~= "" and ", " or "") .. "members: " .. it.members
-			else info = info .. (info ~= "" and ", " or "") .. "nobody" end
-			if it.locked then info = info .. "  [locked]" end
-			CM.coGuiSetText(D, "rowInfo" .. i, row.info, info)
+			CM.coGuiSetClass(D, "rowSel" .. i, row.c, it.cid == D.coSel and "mpCoSel" or "mpCoRow")
+			CM.coGuiSetText(D, "rowTv" .. i, row.tv, it.name)
+			CM.coGuiSetText(D, "rowInfo" .. i, row.info, CM.coGuiWho(it, st))
 		end
 	end
 	local more = #st.list - #(D.coRows or {})
-	CM.coGuiSetText(D, "more", D.coMoreText, more > 0 and ("+" .. more .. " more (the list shows " .. #D.coRows .. ")") or "")
+	CM.coGuiSetText(D, "more", D.coMoreText, more > 0 and ("+" .. more .. " more") or "")
 	CM.coGuiShow(D.coMoreText, more > 0)
-	-- the selected company
+	-- the selected company, when it is another one
 	local sel = D.coSel and st.byId[D.coSel]
-	local other = sel and sel.cid ~= st.mine
-	CM.coGuiSetText(D, "selText", D.coSelText, other and ("Selected: " .. sel.name) or "")
-	CM.coGuiShow(D.coSelText, other)
-	CM.coGuiShow(D.coSelPwRow, other and sel.locked)
-	CM.coGuiShow(D.coSelActions, other)
-	local me = mine
-	local showOpen = other and st.mode == "companies" and me ~= nil
-	CM.coGuiShow(D.coSelOpenRow, showOpen)
-	if showOpen then
-		CM.coGuiSetText(D, "selOpen", D.coSelOpenText, "Its vehicles at your stations: " .. (CM.coGuiOpenFor(me.open, sel.cid) and "allowed" or "not allowed"))
+	local other = sel ~= nil and sel.cid ~= st.mine
+	CM.coGuiShow(D.coSelBox, other and not D.coDelOpen)
+	if other then
+		CM.coGuiSetText(D, "selText", D.coSelText, sel.name:upper())
+		CM.coGuiShow(D.coSelPwRow, sel.locked)
+		local showOpen = st.mode == "companies" and me ~= nil
+		CM.coGuiShow(D.coSelOpenRow, showOpen)
+		if showOpen then
+			local allowed = CM.coGuiOpenFor(me.open, sel.cid)
+			CM.coGuiSetText(D, "selOpen", D.coSelOpenText, "Its vehicles may " .. (allowed and "" or "not ") .. "stop at your stations")
+			CM.coGuiSetText(D, "access", D.coAccessTv, allowed and "DENY" or "ALLOW")
+		end
 	end
-	-- delete
+	-- delete (replaces the selected company's actions while open)
 	local delOpen = D.coDelOpen and other
 	CM.coGuiShow(D.coDelBox, delOpen)
 	if delOpen then
-		CM.coGuiSetText(D, "delText", D.coDelText, "Delete " .. sel.name .. "? Its vehicles, lines, stations, money and loan go to the company chosen below."
-			.. (#sel.playing > 0 and "  (Someone is playing it -- the game will refuse.)" or ""))
+		CM.coGuiSetText(D, "delText", D.coDelText, "Delete " .. sel.name .. "? Its vehicles, lines, stations, money and loan go to another company."
+			.. (#sel.playing > 0 and "  Someone is playing it: the game will refuse." or ""))
 		CM.coGuiDelPick(D, st)
 	end
 	-- new company / settings
 	CM.coGuiShow(D.coNewBox, D.coNewOpen)
+	CM.coGuiShow(D.coNewToggle, not D.coNewOpen)
 	CM.coGuiShow(D.coSetBox, D.coSetOpen and me ~= nil)
 	if D.coNewOpen then
 		CM.coGuiMarkColor(D, "coNew", D.coNewColor, st, nil)
-		CM.coGuiSetText(D, "newPaint", D.coNewPaintTv, D.coNewPaint and "VEHICLES IN COMPANY COLOUR: ON" or "VEHICLES IN COMPANY COLOUR: OFF")
+		CM.coGuiSetText(D, "newPaint", D.coNewPaintTv, D.coNewPaint and "PAINT VEHICLES: ON" or "PAINT VEHICLES: OFF")
 	end
 	if D.coSetOpen and me then
 		CM.coGuiMarkColor(D, "coSet", me.color, st, me.cid)
-		CM.coGuiSetText(D, "paint", D.coPaintTv, me.paint and "VEHICLES IN COMPANY COLOUR: ON" or "VEHICLES IN COMPANY COLOUR: OFF")
-		CM.coGuiSetText(D, "openText", D.coOpenText, "Your stations are open to: " .. CM.coGuiOpenText(me.open, st))
+		CM.coGuiSetText(D, "paint", D.coPaintTv, me.paint and "PAINT VEHICLES: ON" or "PAINT VEHICLES: OFF")
+		-- one password button: set what is typed, or remove the lock when the field is empty
+		local typed = CM.coGuiGet(D.coPwInput) ~= ""
+		CM.coGuiShow(D.coPwBtn, typed or me.locked)
+		CM.coGuiSetText(D, "pwBtn", D.coPwBtnTv, typed and (me.locked and "CHANGE" or "SET") or "REMOVE")
+		CM.coGuiSetText(D, "openText", D.coOpenText, "Your stations: open to " .. CM.coGuiOpenText(me.open, st))
+		CM.coGuiSetText(D, "openBtn", D.coOpenBtnTv, me.open == "*" and "CLOSE TO ALL" or "OPEN TO ALL")
 	end
 	-- the note: a local hint until the sim says something new; the loading wait wins
 	if st.note ~= "" and st.note ~= D.coNoteSeen then D.coNoteSeen = st.note; D.coHint = nil end
@@ -400,7 +423,7 @@ function CM.coGuiRefresh(D, kv, guiTick)
 		local loading = CM.cmLoadingPlayers()
 		D.coLoadingNote = (#loading > 0) and CM.cmLoadingNote(loading) or nil
 	end
-	CM.coGuiSetText(D, "note", D.coNote, "   " .. (D.coHint or D.coLoadingNote or st.note))
+	CM.coGuiSetText(D, "note", D.coNote, (D.coHint or D.coLoadingNote or st.note))
 end
 
 return {}
