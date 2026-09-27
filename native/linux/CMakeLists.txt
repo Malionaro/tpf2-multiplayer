@@ -69,7 +69,7 @@ add_library(tpf2_slice SHARED src/slice/slice_core.cpp src/slice/slice_install.c
             src/slice/slice_core_main.cpp src/hook_posix.cpp src/slice/slice_vehicles.cpp
             src/slice/slice_lines.cpp src/slice/slice_time.cpp src/slice/slice_proposal.cpp
             src/slice/slice_construction.cpp src/slice/slice_construction_merge.cpp src/slice/slice_terrain_assets.cpp
-            src/slice/slice_terrain_codec.cpp src/slice/train_order_linux.cpp src/slice/movement_linux.cpp
+            src/slice/slice_terrain_codec.cpp src/slice/train_order_linux.cpp src/slice/movement_linux.cpp src/slice/save_zstd_linux.cpp
             src/slice/company_tint_linux.cpp src/slice/ecs_linux.cpp)
 set_target_properties(tpf2_slice PROPERTIES PREFIX "")
 target_include_directories(tpf2_slice PRIVATE ../src src)
@@ -429,6 +429,11 @@ if(BUILD_TESTING)
   target_link_options(test_movement_linux PRIVATE -Wl,--gc-sections)
   target_link_libraries(test_movement_linux PRIVATE ${CMAKE_DL_LIBS})
   add_test(NAME movement_linux COMMAND test_movement_linux $<TARGET_FILE:slice_test_foreign>)
+  add_executable(test_save_zstd tests/save_zstd_test.cpp)
+  target_include_directories(test_save_zstd PRIVATE ../src src)
+  target_compile_options(test_save_zstd PRIVATE -UNDEBUG)
+  target_link_libraries(test_save_zstd PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+  add_test(NAME save_zstd COMMAND test_save_zstd)
   add_executable(test_train_order ../../tools/trainorder_test.cpp)
   target_compile_options(test_train_order PRIVATE -UNDEBUG)
   add_test(NAME train_order COMMAND test_train_order)

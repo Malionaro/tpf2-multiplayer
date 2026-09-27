@@ -20,6 +20,7 @@
 #include "train_order_linux.h"
 #include "company_tint_linux.h"
 #include "movement_linux.h"
+#include "save_zstd_linux.h"
 #include "../datadir_linux.h"
 #include "../game_image.h"
 #include "../slice_ready_linux.h"
@@ -108,6 +109,7 @@ static void InitThread()
     const SliceInstallReport installed = SliceCoreInstall();
     const bool trainOrderReady = SliceInstallTrainOrder(img.base, rootDir, dataDir);
     const bool movementReady = SliceInstallMovement(img.base, rootDir, dataDir);
+    SliceInstallSaveZstd(img.base, rootDir, dataDir);   // optional: saves compress on one thread without it
     const bool published = SlicePublishReady(dataDir, installed.ready && trainOrderReady && movementReady);
     SliceLog("[slice] multiplayer hook readiness: %s\n",
              installed.ready && trainOrderReady && movementReady && published ? "ready" : "NOT READY -- multiplayer startup refused");
@@ -117,6 +119,7 @@ static void InitThread()
         SliceCoreLogAlive();
         SliceTrainOrderLogAlive();
         SliceCompanyTintLogAlive();
+        SliceSaveZstdLogAlive();
     }
 }
 
