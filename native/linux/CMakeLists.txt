@@ -69,7 +69,7 @@ add_library(tpf2_slice SHARED src/slice/slice_core.cpp src/slice/slice_install.c
             src/slice/slice_core_main.cpp src/hook_posix.cpp src/slice/slice_vehicles.cpp
             src/slice/slice_lines.cpp src/slice/slice_time.cpp src/slice/slice_proposal.cpp
             src/slice/slice_construction.cpp src/slice/slice_construction_merge.cpp src/slice/slice_terrain_assets.cpp
-            src/slice/slice_terrain_codec.cpp src/slice/train_order_linux.cpp src/slice/movement_linux.cpp src/slice/save_zstd_linux.cpp
+            src/slice/slice_terrain_codec.cpp src/slice/train_order_linux.cpp src/slice/movement_linux.cpp src/slice/save_zstd_linux.cpp src/slice/steam_poll_linux.cpp
             src/slice/company_tint_linux.cpp src/slice/ecs_linux.cpp)
 set_target_properties(tpf2_slice PROPERTIES PREFIX "")
 target_include_directories(tpf2_slice PRIVATE ../src src)

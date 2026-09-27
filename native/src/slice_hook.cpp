@@ -596,4 +596,5 @@ enum VecRead { VEC_UNREADABLE, VEC_EMPTY, VEC_OK };
 #include "slice/moveorder.inl"   // SHIP AND AIRCRAFT CLAIM ORDER (moveorder.h)
 #include "slice/town_trace.inl"   // TOWN DEVELOPMENT TRACE (diagnostic, towntrace=1; ../town_trace.h)
 #include "slice/hotjoin_order.inl"   // HOT-JOIN ORDER: person batches in entity-id order (hotjoin_order.inl)
+#include "slice/steam_poll.inl"   // the game's Steam poll thread, throttled while busy (steam_poll.inl)
 #include "slice/init.inl"   // the relay blobs, hook installation, Init and DllMain
