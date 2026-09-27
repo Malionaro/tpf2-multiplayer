@@ -921,12 +921,16 @@ function CM.mpButtonInstall()
 	local main = api.gui.util.getById("mainButtonsLayout")
 	local layout = main and main:getItem(0)
 	if not layout then return false end
+	-- sized like the game's disk buttons: a 60 px disk (style_sheet/mp_lockstep.lua
+	-- mpToolbarDisk) around a 34 px icon
 	local icon = api.gui.comp.ImageView.new(CM.MP_BUTTON_ICON)
-	icon:setMinimumSize(api.gui.util.Size.new(48, 48))
-	icon:setMaximumSize(api.gui.util.Size.new(60, 60))
+	icon:setMinimumSize(api.gui.util.Size.new(34, 34))
+	icon:setMaximumSize(api.gui.util.Size.new(34, 34))
 	local button = api.gui.comp.ToggleButton.new(icon)
 	button:setTooltip("Multiplayer (Ctrl+Shift+D)")
-	button:setMinimumSize(api.gui.util.Size.new(48, 48))
+	button:setStyleClassList({ "mpToolbarDisk" })
+	button:setMinimumSize(api.gui.util.Size.new(60, 60))
+	button:setMaximumSize(api.gui.util.Size.new(60, 60))
 	layout:insertItem(button, 0)
 	CM.mpButton = button
 	CM.mpButtonSync(not (CM.dash and CM.dash.shown == false))
