@@ -109,7 +109,7 @@ while the session ran. Numbers for the native Linux build; under Proton only the
   default 65,530 is within reach of a world this size. Untried idea, cheap to
   try: park the dedicated camera zoomed right in over empty terrain once the
   world is up -- nobody looks through it, and the engine would then prepare
-  almost nothing per frame.
+  almost nothing per frame. (Tried 2026-09-27: about 6% of a core; see below.)
 - **`dedicated_fps` is the ceiling on the clock, not just render work.** The
   engine consumes one batch per frame, and a batch is 200 ms of simulation, so
   the frame rate caps the speed: 30 frames a second is 6x, 20 is 4x. Do not lower
@@ -188,6 +188,24 @@ second). With `dedicated_render=0` no draw ever reads a set, so
 - What is left on the main thread is the engine's own frame preparation (the
   game's code and `malloc`), which runs at `dedicated_fps` whether anyone looks or
   not; the camera idea above is the next thing to try.
+
+### The road sort's remaining reads, and the camera (2026-09-27)
+
+With the page walk gone the road sort was still ~12% of the sim thread: ~8
+guarded reads per vehicle for its name (`4315e9b` reads each level for the whole
+edge in one `process_vm_readv`, `SliceEntityNames`), and a fixed 8 reads plus an
+engine lookup on every Add before the "fewer than two vehicles" return, which is
+most Adds (`60e48ff`: four reads, the lookup only when there is something to
+sort). Same server, 1,250 Adds a second, three minutes after the world came up:
+
+- guarded reads 8,300 a second (from ~16,000); the road hook 8.5% of the sim thread;
+- the sim thread 22% of a core at 1x, `base=200000`; 59% of it is now the
+  engine's own code and 17% `malloc`.
+
+The camera, tried with `xdotool` scroll clicks on display :9: zoomed all the way
+in, the main thread settles at 35% of a core; the save's own view 41%; zoomed all
+the way out 49%. Parking the camera would save about 6% of a core -- not worth a
+change to the mod's GUI script, which every joiner must match.
 
 Loading the world is not the time to measure: until `mp_loading.txt` says "world
 loaded", the pace file is the previous run's, and the load itself spends its time
