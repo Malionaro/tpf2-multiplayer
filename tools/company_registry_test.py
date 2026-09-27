@@ -250,5 +250,45 @@ Session([H]).pump()
 check("a known Steam player without their id this time is still that player", H.T.companyOf("a") == 1
       and H.cm().co.origin["a"] == "s:7656100000000077" and H.cm().co.members["n:Bob"] is None, str(H.cm().co.origin["a"]))
 
+# ===========================================================================
+# 9. one Steam account in two games (a local test with a sandbox)
+# ===========================================================================
+SAME = "7656100000000042"
+R2 = {"a": "Host", "b": "Box"}
+for order in (["a", "b"], ["b", "a"]):
+    P = Machine("a", SAME, "Host", R2, chip=1)
+    Q = Machine("b", SAME, "Box", R2, chip=2)
+    for m in (P, Q):
+        m.world({100: {"balance": 5000000}}, TOWN, 100)
+        m.boot()
+        m.join()
+    s = Session([P, Q])
+    s.pump(order)
+    tag = "one Steam account, joins " + "/".join(order)
+    check(f"{tag}: two players, two companies", P.T.companyOf("a") == 1 and P.T.companyOf("b") == 2 and Q.T.companyOf("b") == 2,
+          f"{P.T.companyOf('a')} {P.T.companyOf('b')}")
+    check(f"{tag}: both stay in the session", P.cm().co.origin["a"] is not None and P.cm().co.origin["b"] is not None)
+    # reload in the other order: everyone keeps their company
+    rec = from_lua(P.cm().cmSaveState())
+    P2 = Machine("a", SAME, "Host", R2, chip=1)
+    Q2 = Machine("b", SAME, "Box", R2, chip=2)
+    for m in (P2, Q2):
+        m.world({100: {"balance": 0}}, TOWN, 100)
+        m.T.CM.cmLoadState(to_lua(m.L, rec))
+        m.boot()
+        m.join()
+    Session([P2, Q2]).pump(list(reversed(order)))
+    check(f"{tag}: after a reload joined the other way round, still the same companies",
+          P2.T.companyOf("a") == 1 and P2.T.companyOf("b") == 2, f"{P2.T.companyOf('a')} {P2.T.companyOf('b')}")
+# a lone player who changed their lobby name is still themselves
+S1 = Machine("a", SAME, "Old", {"a": "Old"}, chip=1)
+S1.world({100: {"balance": 0}}, TOWN, 100)
+S1.boot(); S1.join(); Session([S1]).pump()
+rec = from_lua(S1.cm().cmSaveState())
+S2 = Machine("a", SAME, "New", {"a": "New"}, chip=1)
+S2.world({100: {"balance": 0}}, TOWN, 100)
+S2.T.CM.cmLoadState(to_lua(S2.L, rec)); S2.boot(); S2.join(); Session([S2]).pump()
+check("a renamed player keeps their Steam entry", S2.cm().co.origin["a"] == "s:" + SAME and S2.T.companyOf("a") == 1, str(S2.cm().co.origin["a"]))
+
 print("FAILED: " + ", ".join(fails) if fails else "ALL PASS: every machine agrees on the companies")
 raise SystemExit(1 if fails else 0)

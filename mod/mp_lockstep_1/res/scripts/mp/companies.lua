@@ -1104,6 +1104,17 @@ function CM.cmExecJoin(c, o)
 	if key == "" then key = "l:" .. tostring(o) end
 	local name = CM.unescName(tostring(c.name or ""))
 	if name == "" then name = tostring(o) end
+	-- ONE STEAM ACCOUNT, TWO GAMES (2026-09-27, a local test: the second game runs
+	-- in a sandbox on the same account). Such a game is "<steam key>|<name>", decided
+	-- the same whichever joins first: its own entry if it has one; else the plain key
+	-- when that key's recorded name is its own, or when no other letter of this
+	-- session holds the key (a player who changed their lobby name).
+	if key:sub(1, 2) == "s:" then
+		local dual = key .. "|" .. name
+		local heldElsewhere = false
+		for o2, k2 in pairs(co.origin) do if k2 == key and o2 ~= o then heldElsewhere = true end end
+		if co.members[dual] or (heldElsewhere and co.names[key] ~= name) then key = dual end
+	end
 	-- a player known by name only so far is the same player once it has a Steam id
 	local byName = "n:" .. name
 	if key ~= byName and co.members[byName] and not co.members[key] then
