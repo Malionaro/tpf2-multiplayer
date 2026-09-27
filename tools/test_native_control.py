@@ -30,7 +30,9 @@ bool PauseAndDrain(const std::string& id) {
     events.push({id,"paused","",true}); return true;
 }
 bool Poll(Event& e) { std::lock_guard<std::mutex> l(eventMutex); if(events.empty())return false; e=events.front();events.pop();return true; }
-bool HasWorld(){return true;} bool Busy(){return false;} bool SetActionsHeld(bool){return true;}
+std::atomic<int> gestureKey{0};
+bool HasWorld(){return true;} bool Busy(){return false;}
+bool SetActionsHeld(bool held){return !held || !gestureKey.load();} int ActiveGestureKey(){return gestureKey.load();}
 void WorkThreads(DWORD& ui,DWORD& command){ui=GetCurrentThreadId();command=0;}
 }
 #include "CONTROL_CPP"
@@ -60,8 +62,18 @@ int main() {
     CloseHandle(held);
     waitFor([&]{return read(event).find("step=paused\nsuccess=1")!=std::string::npos;});
     assert(pauses==1); // completion was repeated, never the engine command
+    // a key held past the old 10 s deadline (push-to-talk while talking): the
+    // hold waits, the status names the key, and holds once it is released
+    NativeIo::gestureKey=0x56;
+    {std::ofstream f("tpf2_native_request.txt",std::ios::binary);f<<"pid="<<GetCurrentProcessId()<<"\nid=hold1\ncmd=hold\n";}
+    waitFor([]{return read("tpf2_native_status.txt").find("\nhold_key=86\n")!=std::string::npos;});
+    Sleep(10500);
+    assert(read(event).find("id=hold1")==std::string::npos);
+    NativeIo::gestureKey=0;
+    waitFor([&]{return read(event).find("id=hold1\nstep=held\nsuccess=1")!=std::string::npos;});
+    waitFor([]{return read("tpf2_native_status.txt").find("\nhold_key=0\n")!=std::string::npos;});
     NativeControl::SignalShutdown(); Sleep(200);
-    puts("PASS: native completion survives Windows sharing violation without repeating engine command; an earlier process's recovery record is emptied at start");
+    puts("PASS: native completion survives Windows sharing violation without repeating engine command; an earlier process's recovery record is emptied at start; a hold waits out a held key past 10 s");
 }
 '''
 code = code.replace('NATIVE_IO', (root/'native/src/native_io.h').as_posix())
@@ -73,4 +85,4 @@ vcvars = root / 'tools' / 'msvc_env.bat'
     'cl /nologo /EHsc /W4 test.cpp /Fe:test.exe >build.log 2>&1\n'
     'if errorlevel 1 (type build.log & exit /b 1)\nexit /b 0\n')
 subprocess.run(['cmd','/d','/c',str(out/'build.cmd')], cwd=out, check=True, timeout=180)  # absolute: a relative name fails on some shells
-subprocess.run([str(out / 'test.exe')], cwd=out, check=True, timeout=20)
+subprocess.run([str(out / 'test.exe')], cwd=out, check=True, timeout=40)

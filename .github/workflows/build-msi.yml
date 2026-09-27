@@ -105,13 +105,16 @@ jobs:
       - name: Build the files zip (Proton / manual install)
         run: python tools\build_files_zip.py
 
+      - name: Build the dedicated server package (Linux)
+        run: python tools\server\build_package.py
+
       - name: Checksums
         shell: pwsh
         working-directory: installer/out
         run: |
           # LF line endings: sha256sum -c and the shell installer read "<hash>  <name>" lines,
           # and a trailing \r (Set-Content's default on Windows) broke the 0.6.1.12 install
-          $sums = Get-FileHash TpF2Multiplayer.msi, TpF2Multiplayer-files.zip -Algorithm SHA256 |
+          $sums = Get-FileHash TpF2Multiplayer.msi, TpF2Multiplayer-files.zip, TpF2Multiplayer-Server-Linux.tar.gz -Algorithm SHA256 |
             ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), (Split-Path $_.Path -Leaf) }
           [IO.File]::WriteAllText((Join-Path (Get-Location) SHA256SUMS.txt), ($sums -join "`n") + "`n", (New-Object Text.ASCIIEncoding))
           Get-Content SHA256SUMS.txt
@@ -151,6 +154,7 @@ jobs:
           | **Windows** | [TpF2Multiplayer.msi]($base/TpF2Multiplayer.msi) -- close the game, run it |
           | **Linux / Steam Deck**, the Windows game under Proton | [install_proton.sh]($base/install_proton.sh) -- run it with sh; it fetches the rest itself |
           | **Linux**, the native game | [tpf2mp-linux-$ver-native.run]($base/tpf2mp-linux-$ver-native.run) -- close the game, ``bash tpf2mp-linux-$ver-native.run`` |
+          | **A dedicated server** on Linux or a VPS | [TpF2Multiplayer-Server-Linux.tar.gz]($base/TpF2Multiplayer-Server-Linux.tar.gz) -- unpack it, ``sudo sh tpf2mp-server/setup_vps.sh``; the guide: [HOSTING_A_SERVER.md](https://github.com/${{ github.repository }}/blob/main/docs/HOSTING_A_SERVER.md). A Windows server is the MSI above |
 
           The files zip, the Linux .tar.gz, install_proton.py and the checksums are in the [packages for $tag]($pkg). The two *Source code* archives at the bottom are the repository, not the mod. Everyone in a session needs the same version.
 
@@ -170,6 +174,7 @@ jobs:
           path: |
             installer/out/TpF2Multiplayer.msi
             installer/out/TpF2Multiplayer-files.zip
+            installer/out/TpF2Multiplayer-Server-Linux.tar.gz
             installer/out/install_proton.py
             installer/out/install_proton.sh
             installer/out/SHA256SUMS.txt

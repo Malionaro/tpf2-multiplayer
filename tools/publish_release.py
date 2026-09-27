@@ -18,11 +18,13 @@ and, asked, launchers on top even though launchers up to 1.2.0 then cannot insta
                and the direct installers (the user, 2026-09-26: "in addition to the
                launcher download the install msi, proton and native linux.run"):
                TpF2Multiplayer.msi  install_proton.sh  tpf2mp-linux-<v>-native.run
+               TpF2Multiplayer-Server-Linux.tar.gz (the dedicated server's scripts)
                -- which also lets launchers up to 1.2.0 install it again: they look
                for TpF2Multiplayer.msi on v<version>
     0.7.0.6    the update files, tagged without the "v", not Latest:
                TpF2Multiplayer.msi  TpF2Multiplayer-files.zip  install_proton.py
                install_proton.sh  SHA256SUMS.txt  tpf2mp-linux-<v>-native.run/.tar.gz/.sha256
+               TpF2Multiplayer-Server-Linux.tar.gz
     silver2127/tpf2-multiplayer-packages v0.7.0.6   the same install files
 
 Launchers from 1.3.0 skip a tag without the "v" whose v twin is listed (and
@@ -81,8 +83,10 @@ PACKAGES_REPO = "silver2127/tpf2-multiplayer-packages"
 LAUNCHER_REPO = "tearded/tpf-multiplayer-launcher"
 WINDOWS_NAME = "TpF2Multiplayer-Launcher-Windows-Setup.exe"
 LINUX_NAME = "TpF2Multiplayer-Launcher-Linux.AppImage"
-PAYLOAD = ["TpF2Multiplayer.msi", "TpF2Multiplayer-files.zip", "install_proton.py", "install_proton.sh", "SHA256SUMS.txt"]
+PAYLOAD = ["TpF2Multiplayer.msi", "TpF2Multiplayer-files.zip", "TpF2Multiplayer-Server-Linux.tar.gz", "install_proton.py", "install_proton.sh", "SHA256SUMS.txt"]
 API = "https://api.github.com"
+# the dedicated server's scripts (tools/server/build_package.py), under a name that does not change
+SERVER_NAME = "TpF2Multiplayer-Server-Linux.tar.gz"
 
 
 def say(text):
@@ -229,7 +233,7 @@ def check_payload(folder, version):
     if missing:
         fail(f"the payload lacks {', '.join(missing)}")
     listed = sums((folder / "SHA256SUMS.txt").read_text())
-    for name in ("TpF2Multiplayer.msi", "TpF2Multiplayer-files.zip"):
+    for name in ("TpF2Multiplayer.msi", "TpF2Multiplayer-files.zip", "TpF2Multiplayer-Server-Linux.tar.gz"):
         if listed.get(name) != sha256(folder / name):
             fail(f"{name} does not match SHA256SUMS.txt")
     for script, stamp in (("install_proton.py", f'DEFAULT_VERSION = "{version}"'), ("install_proton.sh", f'DEFAULT_VERSION="{version}"')):
@@ -342,7 +346,7 @@ def launcher_release(gh, args):
 
 # the direct installers the version's page carries beside the launchers
 def page_direct(version):
-    return ["TpF2Multiplayer.msi", "install_proton.sh", f"tpf2mp-linux-{version}-native.run"]
+    return ["TpF2Multiplayer.msi", "install_proton.sh", f"tpf2mp-linux-{version}-native.run", SERVER_NAME]
 
 
 def launcher_table(tag, files_url, linux_launcher=True):
@@ -359,7 +363,9 @@ def launcher_table(tag, files_url, linux_launcher=True):
             "| You play on | Get this one file |\n| --- | --- |\n"
             f"| **Windows** | [TpF2Multiplayer.msi]({base}/TpF2Multiplayer.msi) -- close the game, run it |\n"
             f"| **Linux / Steam Deck**, the Windows game under Proton | [install_proton.sh]({base}/install_proton.sh) -- run it with sh; it fetches the rest itself |\n"
-            f"| **Linux**, the native game | [{run}]({base}/{run}) -- close the game, `bash {run}` |\n\n"
+            f"| **Linux**, the native game | [{run}]({base}/{run}) -- close the game, `bash {run}` |\n"
+            f"| **A dedicated server** on Linux or a VPS | [{SERVER_NAME}]({base}/{SERVER_NAME}) -- unpack it, `sudo sh tpf2mp-server/setup_vps.sh`; "
+            f"the guide: [HOSTING_A_SERVER.md](https://github.com/{REPO}/blob/main/docs/HOSTING_A_SERVER.md). A Windows server is the MSI above |\n\n"
             f"The files zip, the Linux .tar.gz, install_proton.py and the checksums are in [the update files]({files_url}). "
             "The two *Source code* archives at the bottom are the repository, not the mod. Everyone in a session needs the same version.\n")
 

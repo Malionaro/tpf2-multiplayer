@@ -9,7 +9,7 @@ preferences and plugin settings.
 
 | file | read by | where | changes take effect |
 |---|---|---|---|
-| `tpf2_slice.cfg` | slice DLL (`dumpprop`), the mod (`dump_egeo`, `exec_delay`) | the game folder (for the slice, next to `tpf2_slice.dll`), else the data folder | `dumpprop` within 2 s, `dump_egeo` within about 5 s, `exec_delay` when a game loads |
+| `tpf2_slice.cfg` | slice DLL (`dumpprop`), the mod (`dump_egeo`, `watch_trains`, `exec_delay`) | the game folder (for the slice, next to `tpf2_slice.dll`), else the data folder | `dumpprop` within 2 s, `dump_egeo` and `watch_trains` within about 5 s, `exec_delay` when a game loads |
 | `tpf2_menu_flags.txt` | menu DLL | next to `tpf2_menu.dll` (the game folder) only | at game start |
 | `tpf2mp.cfg` | plugin host | the game folder, else the data folder | at game start |
 
@@ -27,13 +27,14 @@ The installer's copy has every key commented out.
 |---|---|---|---|
 | `dumpprop` | slice | 0 | `1` dumps every construction and road proposal to `tpf2_slice.log` (verbose): for a replay the engine rejects without a message. |
 | `dump_egeo` | mod | off | `1` writes every edge the desync hash sees to `egeo_<letter>.txt` in the game folder, to diff two instances after a divergence (ignore the first line, a per-instance stamp). |
+| `watch_trains` | mod | off | `1` logs every train's path changes and halts, and every departure from a depot, with the sim step, to diff two instances after a train-order divergence. Diagnostics only (nothing it reads is replicated or hashed); off by default because it reads every train's path on every update and every vehicle every 300 updates, which costs a big map several milliseconds per update. |
 | `exec_delay` | mod | auto | How far ahead every command is stamped, in game-time units, snapped up to the 0.2 step grid: the latency of every action. **Auto** (no value, or anything that is not a number): it starts at 0.4 and follows the measured round trip to each player (heartbeat echoes), rising at once when a connection slows and falling one step at a time when it recovers, within 0.4-3 (0.4 is the floor: a command is only read on the receiver's next script tick, about one step, and at 0.4 ~5% already arrive with no time to spare); the stats show `command delay` and `round trip`. A number from 0.2 to 5 pins it instead. Every received command logs `spare=`, the game time it had left before its stamp (`!! LATE` when negative). |
 
 The two readers parse differently:
 
 - **Slice:** a line that is exactly `dumpprop=1` or `dumpprop=0` from its first character, optionally
   followed by blanks. Any other line is ignored, and the last valid line wins.
-- **Mod:** `key=value`, with blanks allowed before the key and around the `=`. `dump_egeo` is on for
+- **Mod:** `key=value`, with blanks allowed before the key and around the `=`. `dump_egeo` and `watch_trains` are on for
   `1`, `true` or `yes`.
 - A line starting with `#` matches neither, so it works as a comment.
 
@@ -51,7 +52,7 @@ setting at its default.
 | `share_mods` | `ask` | `ask`, `always`, `never` | Only matters when a host runs the lobby with `--share-mods` (mod sharing is off by default): mods the shared save needs and you lack. `ask` shows a YES / NO in the panel when the host presses START GAME (no answer in 90 s counts as no), `always` downloads without asking, `never` declines. |
 | `slot` | 0 | 0-7 | Position of the Multiplayer entry in the title menu's list (0 = top). |
 | `scale` | 0 | 0.5-3 | Panel scale; 0 = screen height / 1080. |
-| `dedicated` | 0 | `0`, `1` | `1`: dedicated server mode -- the title menu hosts a lobby by itself, loads a world and keeps it up ([DEDICATED_SERVER.md](DEDICATED_SERVER.md)). |
+| `dedicated` | 0 | `0`, `1` | `1`: dedicated server mode -- the title menu hosts a lobby by itself, loads a world and keeps it up ([HOSTING_A_SERVER.md](HOSTING_A_SERVER.md), [DEDICATED_SERVER.md](DEDICATED_SERVER.md)). |
 | `dedicated_save` | empty | a save name (no path parts), under 64 characters | The save the server loads; empty: the newest save in the save folder. |
 | `dedicated_lobby` | empty | text without quotes, under 64 characters | The lobby name in the public list. |
 | `dedicated_name` | empty | no blanks or quotes, under 32 characters | The server's player name; empty: the Steam persona or a random name. |

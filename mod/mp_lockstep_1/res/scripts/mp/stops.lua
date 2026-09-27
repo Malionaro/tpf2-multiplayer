@@ -66,9 +66,10 @@ function CM.expectDrop(list, x, y) CM.expectTake(list, x, y) end
 
 -- Optional switches from tpf2_slice.cfg in the game folder (the game-script
 -- CWD; the same file the slice reads): key=value lines, 1/0. The mod reads
--- only two keys: dump_egeo (hash.lua) and exec_delay (pacing.lua, through
--- CM.cfgNum). Everything else is fixed in code, so a missing or garbled cfg
--- changes nothing but those two, and each then falls back to its default.
+-- a few keys: dump_egeo (hash.lua), watch_trains (vehicles.lua), exec_delay
+-- (pacing.lua, through CM.cfgNum) and the loadgate_roster escape hatch.
+-- Everything else is fixed in code, so a missing or garbled cfg changes
+-- nothing but those, and each then falls back to its default.
 function CM.cfgFlag(key, default)
 	-- Re-read every ~5 s (2026-09-09), like the DLL's own cfg.
 	if CM.cfgCache == nil or ((CM.ticks or 0) - (CM.cfgCacheAt or 0)) > 27 then

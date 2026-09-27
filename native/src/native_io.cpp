@@ -366,14 +366,27 @@ bool HasWorld() { std::lock_guard<std::mutex> lock(mutex); return ui!=0; }
 bool Busy() { std::lock_guard<std::mutex> lock(mutex); return state!=State::Idle; }
 bool Loading() { std::lock_guard<std::mutex> lock(mutex); return state==State::QueuedLoad || state==State::Loading; }
 void WorkThreads(DWORD& uiThread,DWORD& command) { std::lock_guard<std::mutex> lock(mutex); uiThread=owner; command=commandThread; }
+int ActiveGestureKey() {
+    // Only input the GAME receives can be an unfinished gesture in it, as on
+    // Linux, where the SDL filter sees just the game's own events. The key
+    // state here is global: a push-to-talk key held while talking about the
+    // desync, typing in another window, a mouse button held in another
+    // program kept a member from ever holding, and after 10 s the round
+    // failed with "Could not pause all games" (2026-09-27, several players).
+    const HWND foreground=GetForegroundWindow();
+    DWORD process=0;
+    if(!foreground || !GetWindowThreadProcessId(foreground,&process) || process!=GetCurrentProcessId()) return 0;
+    for(int key=1;key<256;++key)
+        if(key!=VK_ESCAPE && (GetAsyncKeyState(key)&0x8000)) return key;
+    return 0;
+}
 bool SetActionsHeld(bool held) {
     std::lock_guard<std::mutex> lock(mutex);
     if(held && !inputWindow) return false;
     if(held && !actionsHeld.load()) {
         // Fail without changing the gate while a previous gesture is active.
         // The coordinator must retry, then drain engine commands before saving.
-        for(int key=1;key<256;++key)
-            if(key!=VK_ESCAPE && (GetAsyncKeyState(key)&0x8000)) return false;
+        if(ActiveGestureKey()) return false;
     }
     actionsHeld.store(held); return true;
 }

@@ -204,6 +204,7 @@ bool SavingNow() {
     if(!lock.owns_lock())return true;
     return C().state==State::QueuedSave||C().state==State::Saving;
 }
+int ActiveGestureKey(){return panel::ActiveGestureKey();}
 bool SetActionsHeld(bool held){if(!panel::SetActionsHeld(held))return false;actionsHeld=held;return true;}
 void WorkThreads(unsigned& ui,unsigned& command){std::lock_guard<std::mutex> lock(C().mutex);ui=C().uiThread;command=C().commandThread;}
 }

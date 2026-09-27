@@ -535,3 +535,9 @@ when `vm.overcommit_memory=2`. Failed queries fall back to the fewest buffers.
 This is a buffer scheduling budget, not a hard limit on game memory: values
 alive together may require more buffers. Stock generators retain their
 fewest-buffer path, and maps at/below 128 x 128 tiles remain unchanged.
+
+The [dev `cc0981bb` integration](UPSTREAM_dev_cc0981bb.md) adds the dedicated-server
+archive and hosting guide, spreads shared construction checks across updates,
+and ports the resync hold fix to Linux: no ten-second deadline, game-local
+SDL gesture diagnostics, and focus-loss cleanup. Version remains 0.7.0.7.
+Offline regression tests cover these changes; no new live gameplay result is claimed.

@@ -317,6 +317,24 @@ function CM.drainVehCap()
 	end
 end
 
+-- DIAGNOSTICS, OFF BY DEFAULT (2026-09-23). watchDepartures and watchTrains
+-- below only LOG: nothing they read feeds a command, the queue, the hash or a
+-- key. They ran on every update anyway -- a depot query, a MOVE_PATH read per
+-- train, and every 300 ticks a read of EVERY vehicle on the map -- which is
+-- where a big map's steady update cost and its once-a-window hitch sat.
+-- `watch_trains=1` in tpf2_slice.cfg turns both on again (within ~5 s) for
+-- the next desync hunt; switching off drops their state, so switching on
+-- again starts clean instead of logging stale departures.
+function CM.vehWatchOn()
+	local on = CM.cfgFlag("watch_trains", false)
+	if not on and CM.vehWatchWasOn then
+		CM.depotSince = nil
+		CM.trainWatch = { list = {}, last = {}, at = -1e9, off = false }
+	end
+	CM.vehWatchWasOn = on
+	return on
+end
+
 -- Resolve pending purchase keys: the depot's vehicle that is not yet known.
 -- Which STEP each keyed vehicle leaves its depot on, logged on every instance:
 -- two clones bought 0.8 s apart onto one line left the same depot in opposite

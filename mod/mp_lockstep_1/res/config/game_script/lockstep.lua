@@ -463,6 +463,33 @@ local function log(s)
 	pcall(dashNote, s)
 end
 
+-- PERF LANES (2026-09-23): the update's cost per job, so the PERF line says WHICH
+-- part of a big map's update is dear instead of one total. Each call closes the
+-- lane that began at t0 and returns the clock for the next one. Measurement only.
+function CM.perfLane(name, t0)
+	local t1 = os.clock()
+	local lanes = CM.perfLanes or {}
+	CM.perfLanes = lanes
+	local p = lanes[name]
+	if not p then p = { sum = 0, max = 0 }; lanes[name] = p end
+	local dt = (t1 - t0) * 1000
+	p.sum = p.sum + dt
+	if dt > p.max then p.max = dt end
+	return t1
+end
+-- the dearest lanes of the window, "name avg/max ms", for the PERF line
+function CM.perfLanesText(n)
+	local rows = {}
+	for name, p in pairs(CM.perfLanes or {}) do rows[#rows + 1] = { name = name, sum = p.sum, max = p.max } end
+	table.sort(rows, function(a, b) if a.sum ~= b.sum then return a.sum > b.sum end return a.name < b.name end)
+	local out = {}
+	for i = 1, math.min(#rows, 10) do
+		local r = rows[i]
+		out[#out + 1] = string.format("%s %.2f/%.0f", r.name, n > 0 and r.sum / n or 0, r.max)
+	end
+	return table.concat(out, ", ")
+end
+
 -- ---------- module loading that says what broke ----------
 -- Every module loads through CM.boot: a step marker first, then on a failure
 -- a readable message naming the module (accented bytes shown as "?", see the
@@ -929,6 +956,7 @@ function data()
 			-- behind that the player's actions are off (inject.lua).
 			pcall(CM.actionsBlockTick, now)
 			CM.pollInject()
+			local lap = CM.perfLane("inject", upd0)
 			-- NO WORLD SCANS ON A TIMER. The construction and stop polls walked every
 			-- construction and every edge object on the map every 10 steps -- ~300 ms of frozen
 			-- simulation each on a big map (2026-09-12) -- to find builds the slice already
@@ -955,6 +983,7 @@ function data()
 				CM.pollNewConstructions()
 				CM.pollStops()
 			end
+			lap = CM.perfLane("scans", lap)
 			if CM.ticks % 15 == 7 then CM.pollLoan() end
 			-- Until the peer's first heartbeat, refresh the status file every 3 ticks rather
 			-- than every 15: the slice decides from it whether a build can be cancelled, and
@@ -968,13 +997,19 @@ function data()
 			end
 			if CM.txRepeatTick then CM.txRepeatTick() end   -- the extra copies of our recent commands
 			if CM.ticks % 10 == 5 then CM.nackScan() end
+			lap = CM.perfLane("misc", lap)
 			CM.flushConPairs()
 			CM.primeConstructions()
 			CM.primeVehKeys()
 			CM.shipParkedBuys()
 			CM.pollVehKeys()
-			CM.watchDepartures()
-			CM.watchTrains()
+			lap = CM.perfLane("vehicles", lap)
+			-- diagnostics only, off unless watch_trains=1 (vehicles.lua CM.vehWatchOn)
+			if CM.vehWatchOn() then
+				CM.watchDepartures()
+				CM.watchTrains()
+			end
+			lap = CM.perfLane("watch", lap)
 			CM.drainVehCap()
 			CM.primeLineKeys()
 			CM.pollLineKeys()
@@ -987,11 +1022,14 @@ function data()
 					CM.runQueued(head.c)
 				end
 			end
-			if CM.ticks % K.REMOVAL_POLL_EVERY == 0 then CM.pollConstructionRemovals() end
+			lap = CM.perfLane("lines", lap)
+			CM.pollConstructionRemovalsSlice()   -- every construction once per K.REMOVAL_POLL_EVERY ticks, in slices (cons.lua)
+			lap = CM.perfLane("removals", lap)
 			-- Orphaned-split heals are NOT swept here any more: a frame-tick sweep healed
 			-- on a different sim step on every instance (desync, 2026-09-12). Each watched
 			-- split is a HEALCHK in the step-locked queue instead (cons.lua CM.watchSplit).
-			if CM.ticks % K.CON_EDIT_SCAN_EVERY == 0 then CM.scanConstructionEdits() end
+			CM.scanConstructionEditsSlice()   -- every construction once per K.CON_EDIT_SCAN_EVERY ticks, in slices (cons.lua)
+			lap = CM.perfLane("edits", lap)
 
 			-- the command delay follows the measured round trips (net.lua CM.execDelayTick)
 			if CM.execDelayTick then pcall(CM.execDelayTick) end
@@ -1010,10 +1048,13 @@ function data()
 					CM.ackReport and CM.ackReport() or "", CM.resyncToken))
 			end
 
+			lap = CM.perfLane("heartbeat", lap)
 			CM.paceTick(now)
 			CM.ensureRunning()
+			lap = CM.perfLane("pace", lap)
 			pcall(CM.cursorTick)   -- other players' cursors (cursors.lua): cosmetic, never the sim
 			pcall(CM.previewTick)
+			lap = CM.perfLane("cursors", lap)
 
 			-- Commands that asked to be tried again (a VLINE whose line has not
 			-- arrived yet). They were executed once as far as the pump knows, so
@@ -1169,7 +1210,9 @@ function data()
 			-- instance on its own phase of the stamp grid (A hashed t%20 in {0,8},
 			-- B in {4,12}) so the stamp sets were DISJOINT: one SYNC verdict in an
 			-- entire session, and a real 3-edge divergence sat invisible behind it.
+			lap = CM.perfLane("queue", lap)
 			checkHash(now)
+			CM.perfLane("hash", lap)
 			do  -- PERF: whole per-tick script cost (file polls, queue, apply, hash check)
 				local dt = (os.clock() - upd0) * 1000
 				local pf = CM.perfUpd or { n = 0, sum = 0, max = 0 }
@@ -1178,6 +1221,7 @@ function data()
 			end
 
 			if CM.ticks % 15 == 0 then
+				local dash0 = os.clock()
 				-- The dashboard file: one key=value per line, then the recent
 				-- events. Read by guiUpdate in the GUI Lua state.
 				pcall(function()
@@ -1284,6 +1328,7 @@ function data()
 						f:close()
 					end
 				end)
+				CM.perfLane("dash (after update)", dash0)
 			end
 			do
 				local st = CM.stepOf(now)
@@ -1315,8 +1360,11 @@ function data()
 							u.sum / u.n, u.max, u.n, h and h.n > 0 and h.sum / h.n or 0, h and h.max or 0, h and h.n or 0,
 							pp and pp.n > 0 and string.format(" | after the hash avg=%.1f ms max=%.1f ms", pp.sum / pp.n, pp.max) or "",
 							(CM.hashPartsWorst or CM.hashPartsMs) and (" | dearest hash: " .. (CM.hashPartsWorst or CM.hashPartsMs)) or ""))
+						-- where it went, per job: avg/max ms per update over the same ticks
+						if CM.perfLanesText then log("PERF lanes: " .. CM.perfLanesText(u.n)) end
 					end
 					CM.perfUpd, CM.perfHash, CM.perfPost, CM.hashPartsWorst = nil, nil, nil, nil
+					CM.perfLanes = nil
 				end)
 				log(string.format("alive t=%d peer=%s queued=%d desyncs=%d",
 					math.floor(now), tostring(CM.slowT and math.floor(CM.slowT) or "?"),

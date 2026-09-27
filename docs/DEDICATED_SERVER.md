@@ -1,5 +1,8 @@
 # Dedicated server
 
+*Setting one up: [HOSTING_A_SERVER.md](HOSTING_A_SERVER.md). This page is how the mode works and where a
+server spends its time.*
+
 A dedicated server is a real copy of Transport Fever 2 running the multiplayer mod
 with `dedicated=1` in `tpf2_menu_flags.txt`: it hosts a lobby the moment its title
 menu is up, loads a world by itself, keeps the game's own autosave going, and hosts
