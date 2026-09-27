@@ -174,6 +174,21 @@ afternoon, measured three minutes after the world came up:
 - The main thread is now the busiest (70%): lavapipe's 6,800 `mmap` and 6,800
   `munmap` a second, the item above.
 
+### Descriptor sets across pool resets (2026-09-27)
+
+lavapipe's churn was the game's descriptor pools: reset every frame, ~260 sets
+allocated again, each with its own 4 KiB memfd mapping (7,200 `mmap` and `munmap` a
+second). With `dedicated_render=0` no draw ever reads a set, so
+`descriptor_recycle_linux.h` keeps a reset pool's sets and hands them out again
+(`dedicated_recycle_sets`, on by default). Measured on the server, world settled:
+
+- `mmap` 0 and `munmap` 17 in 10 s, from 78,000 and 77,700; 97% of sets reused, a
+  real reset every 600th per pool.
+- Main thread 47% of a core, from 62-70%; the kernel's share of it 6%, from 30%.
+- What is left on the main thread is the engine's own frame preparation (the
+  game's code and `malloc`), which runs at `dedicated_fps` whether anyone looks or
+  not; the camera idea above is the next thing to try.
+
 Loading the world is not the time to measure: until `mp_loading.txt` says "world
 loaded", the pace file is the previous run's, and the load itself spends its time
 in copy-on-write faults and their TLB shootdowns.

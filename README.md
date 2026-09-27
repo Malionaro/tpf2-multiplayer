@@ -424,3 +424,7 @@ The [dev `4d03caf7` integration](docs/linux/UPSTREAM_dev_4d03caf7.md) retains
 upstream's Sandbox tools and TownInfo research. This documentation-only change
 adds no town replication; its Windows measurements do not establish native or
 cross-platform town-creation determinism. Version remains 0.7.0.7.
+
+The [dev `02edb897` integration](docs/linux/UPSTREAM_dev_02edb897.md) retains
+upstream's dedicated descriptor-recycler measurements. Runtime behavior and
+version 0.7.0.7 are unchanged; no local performance measurement is claimed.
