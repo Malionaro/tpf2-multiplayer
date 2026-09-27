@@ -481,11 +481,16 @@ every root-boundary, vehicle-crossing or renderer-culling case. Native placement
 distance remains unwidened and the menu diagonal limit above still applies;
 the upstream gameplay report does not remove that implementation gap.
 
-## Fantasia shared Lua integration — dev ba95f609
+## Fantasia plugin routing — dev 6584fd03
 
-The optional Fantasia stand-ins and existing Lua buffer-reuse pass are available
-on Linux through the explicit `--mods` source installer. No native patch is
-added. Offline Lua 5.2 comparisons pass for all climates at 32 and 40 km; native
-engine output and memory reduction remain unvalidated. The earlier generation
-buffer-reuse limitation above concerns engine validation, not availability of
-this shared Lua mod. See the [integration record](../../../docs/linux/UPSTREAM_dev_ba95f609.md).
+Supersedes the separate stand-in mod from dev ba95f609. The native plugin
+byte-verifies and replaces the game's `fopen` PLT slot, serving private
+anonymous streams containing the shared Windows Lua transformation.
+`generator_memory=1` is enabled by default. No Workshop file is modified and
+no additional mod is required; disable the old low-memory stand-in if present.
+
+[Addresses, disassembly, ABI, ownership and live-attempt evidence](../../../docs/re/linux/DEV_6584FD03.md).
+[Integration and tests](../../../docs/linux/UPSTREAM_dev_6584fd03.md).
+All three climates preserve the 32 km pipeline and reduce 40 km symbolic
+buffer names to 10. Native terrain output and measured peak-memory savings
+remain unvalidated because the lab failed before game startup.

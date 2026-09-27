@@ -358,7 +358,8 @@ adds adaptive retransmission and pacing fixes, and displays the version in
 the native panel. All peers must update. Direct installers now accompany
 the launchers on the version page. Existing native feature limits remain.
 
-The [dev `ba95f609` integration](docs/linux/UPSTREAM_dev_ba95f609.md) adds
-shared Fantasia terrain-buffer reuse above 32 x 32 km. Linux installation uses
-an explicit mods directory; offline generator checks pass, with native terrain
-output and memory savings still unmeasured. Version remains 0.7.0.7.
+The [dev `6584fd03` integration](docs/linux/UPSTREAM_dev_6584fd03.md) moves
+Fantasia terrain-buffer reuse into the native Big Maps plugin, enabled by
+`generator_memory=1`. No additional mod is needed. Offline checks cover all
+three climates; native rendered output and peak memory remain unmeasured.
+Version remains 0.7.0.7.

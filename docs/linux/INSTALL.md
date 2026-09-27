@@ -511,16 +511,17 @@ adds adaptive retransmission and pacing fixes, and displays the version in
 the native panel. All peers must update. Direct installers now accompany
 the launchers on the version page. Existing native feature limits remain.
 
-## Optional Fantasia low-memory generator
+## Fantasia generator buffer reuse
 
-From a source checkout, with the game closed:
+The native Big Maps plugin now applies buffer reuse automatically when a
+Fantasia map has area above 32768² square metres. Enable the normal Fantasia
+Workshop mod; no additional low-memory mod is needed. `generator_memory=1`
+is the default in the `[tpf2_bigmap]` configuration section; set it to `0`
+and restart to disable it. Fantasia's files remain unchanged.
 
-```sh
-python3 bigmap/tools/install_fantasia_low_memory.py --mods "/path/to/Transport Fever 2/mods"
-```
-
-Linux requires the explicit directory. Enable Fantasia and the low-memory mod
-below it; reuse is automatic only above 32768² square metres. Use the same
-command with `--remove` to uninstall. This is separate from the multiplayer
-package. See [installation and validation](UPSTREAM_dev_ba95f609.md); native
-rendered terrain and memory savings have not been measured in this integration.
+If you installed the earlier `tpf2_bigmap_fantasia_low_memory_1` stand-in,
+disable it in the mod list before using the normal Fantasia generator. The
+old installer and stand-in files were retired upstream. Check the plugin log
+for `generator memory: ... served with buffer reuse`. See
+[integration evidence](UPSTREAM_dev_6584fd03.md); native rendered terrain and
+peak memory still need live validation.
