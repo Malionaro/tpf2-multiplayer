@@ -203,6 +203,7 @@ function CM.conKey(x, y) return string.format("%.1f/%.1f", x, y) end
 -- a new id at an already-known position is an edit, never a new build.
 CM.consByKey    = {}   -- conKey -> { id=, file=, params=<ser string> }
 local expectedEdit = {}   -- conKey -> true: our own replayed edit is about to replace the entity
+CM.expectedEditOwner = {} -- conKey -> the company that owned the edited building (companies mode)
 CM.primeQueue   = {}   -- ids from the first poll, classified a few per tick
 
 -- Is the entity the table names still THAT construction? Entity ids are
@@ -281,7 +282,24 @@ function CM.execConU(c)
 		end
 		params.seed = nil
 		local key = CM.conKey(x, y)
+		-- COMPANIES: A BUILDING IS ITS OWNER'S TO CHANGE (2026-09-27). A company's
+		-- headquarters was upgraded by another company's player, and the edit landed
+		-- on every machine. The command's company (decided at the stamp) must own the
+		-- building; ownership by company is the same everywhere, so every machine
+		-- refuses alike. The owner is remembered: upgradeConstruction REPLACES the
+		-- entity, and the replacement lands owned by our human player.
+		local ownerCid = nil
+		if CM.cmMode == "companies" then
+			ownerCid = CM.cmCompanyOfPid and CM.cmCompanyOfPid(CM.cmOwnerOf(rec.id)) or nil
+			local by = tonumber(c.company)
+			if ownerCid and by and ownerCid ~= by then
+				log(string.format("CONU seq=%s: %s at %.1f,%.1f belongs to company %d, not %d -- refused", tostring(c.seq), tostring(c.file), x, y, ownerCid, by))
+				if CM.cmLog then CM.cmLog(string.format("CM: CONU seq=%s from %s refused: the building belongs to co%d (sender co%d)", tostring(c.seq), tostring(c.origin), ownerCid, by)) end
+				return
+			end
+		end
 		expectedEdit[key] = true
+		CM.expectedEditOwner[key] = ownerCid
 		local uok, uerr = pcall(game.interface.upgradeConstruction, rec.id, c.file, params)
 		log(string.format("EXEC CONU seq=%s origin=%s at=%s file=%s target=%d ok=%s%s",
 			tostring(c.seq), tostring(c.origin), tostring(c.at), tostring(c.file), rec.id,
@@ -1548,6 +1566,10 @@ local function landReplayed(id, fn, key, pstr)
 		CM.expectedSince[key] = nil
 		noteCon(id, fn, key, pstr)
 		log(string.format("con: replayed edit landed as id %d", id))
+		-- the replacement landed owned by our player: back to the company that owned it
+		local oc = CM.expectedEditOwner[key]
+		CM.expectedEditOwner[key] = nil
+		if oc and oc ~= CM.cmMyCompany then pcall(function() CM.cmReassignConstruction(id, oc) end) end
 		return true
 	end
 	return false
@@ -1800,10 +1822,30 @@ local function editCheck(key, rec)
 		local e = game.interface.getEntity(rec.id)
 		local pstr = (e and e.params) and CM.ser(e.params) or "{}"
 		if pstr ~= rec.params then
-			rec.params = pstr
+			local foreign, fcid = false, nil
+			if not expectedEdit[key] and CM.cmMode == "companies" and CM.cmForeignOwner then
+				foreign, fcid = CM.cmForeignOwner(rec.id)
+			end
 			if expectedEdit[key] then
+				rec.params = pstr
 				expectedEdit[key] = nil      -- our own replay changed it in place
+			elseif foreign then
+				-- ANOTHER COMPANY'S BUILDING, changed here (2026-09-27: a
+				-- headquarters' window upgraded a foreign HQ). Every other machine
+				-- would refuse the edit (execConU), so it does not ship: it is
+				-- undone here, back to the params everyone else still has.
+				local old = CM.deserParams(rec.params)
+				if old then
+					old.seed = nil
+					expectedEdit[key] = true
+					CM.expectedEditOwner[key] = fcid
+					local rok = pcall(game.interface.upgradeConstruction, rec.id, rec.file, old)
+					if not rok then expectedEdit[key] = nil; CM.expectedEditOwner[key] = nil end
+					log(string.format("con: edit of %s at %s belongs to company %s -- undone here, not shipped (ok=%s)", rec.file, key, tostring(fcid), tostring(rok)))
+				end
+				if CM.cmNote then CM.cmNote("that building belongs to " .. (fcid and CM.cmNameOf(fcid) or "another company") .. ": your change was undone") end
 			else
+				rec.params = pstr
 				shipEdit(rec.file, key, pstr)
 			end
 		end

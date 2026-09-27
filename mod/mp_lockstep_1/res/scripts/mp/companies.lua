@@ -1216,6 +1216,41 @@ function CM.cmExecJoin(c, o)
 		if CM.cmMode == "companies" then CM.cmWantSwitch(cid) end
 	end
 end
+-- A company's headquarters: its constructions whose file is a headquarters.
+function CM.cmHQsOf(pid)
+	local out = {}
+	if not pid then return out end
+	pcall(function()
+		for _, id in pairs(game.interface.getEntities({ radius = 999999 }, { type = "CONSTRUCTION", includeData = false }) or {}) do
+			local co = api.engine.getComponent(id, api.type.ComponentType.CONSTRUCTION)
+			if co and tostring(co.fileName or ""):find("headquarter", 1, true) and CM.cmOwnerOf(id) == pid then out[#out + 1] = id end
+		end
+	end)
+	table.sort(out)
+	return out
+end
+-- Bulldoze fromPid's headquarters. The refund lands on whoever the engine credits:
+-- when that is our own player (not the company taking over), it is moved on to
+-- `toPid`, so every machine ends with the same wallets.
+function CM.cmRemoveHQs(fromPid, toPid, why)
+	for _, id in ipairs(CM.cmHQsOf(fromPid)) do
+		local me = CM.cmCompanyPid[CM.cmMyCompany]
+		local b0 = CM.cmBalance(me)
+		-- every machine removes it at this stamp: our removal tracker must not ship it as a DEMOLISH
+		pcall(function()
+			local co = api.engine.getComponent(id, api.type.ComponentType.CONSTRUCTION)
+			if co and co.transf and CM.expectedDemolish and CM.conKey then CM.expectedDemolish[CM.conKey(co.transf[13], co.transf[14])] = true end
+		end)
+		pcall(function() game.interface.setBulldozeable(id, true) end)
+		local ok = pcall(game.interface.bulldoze, id)
+		local b1 = CM.cmBalance(me)
+		if ok and me ~= toPid and me ~= fromPid and b0 and b1 and b1 ~= b0 then
+			CM.cmBookJournal(me, b0 - b1)
+			CM.cmBookJournal(toPid, b1 - b0)
+		end
+		CM.cmLog(string.format("CM: %s: headquarters %d removed (ok=%s)", tostring(why), id, tostring(ok)))
+	end
+end
 -- Delete company cid: everything it owns, its money and its loan go to `into`.
 function CM.cmExecDelete(c, o, cid)
 	local into = tonumber(c.into)
@@ -1235,6 +1270,9 @@ function CM.cmExecDelete(c, o, cid)
 	local fromPid, toPid = CM.cmCompanyPid[cid], CM.cmCompanyPid[into]
 	local n = 0
 	if fromPid and toPid then
+		-- one headquarters per company: the deleted company's goes when the company
+		-- taking over has its own, else it takes this one over
+		if #CM.cmHQsOf(toPid) > 0 then CM.cmRemoveHQs(fromPid, toPid, "delete " .. cid) end
 		n = CM.cmMoveAssets(fromPid, toPid, "delete " .. cid)
 		local bf, lf = CM.cmWallet(fromPid); local bt, lt = CM.cmWallet(toPid)
 		if bf and bt then

@@ -45,7 +45,7 @@ api = {
     getComponent = function(eid, t)
       local e = W.ents[eid]
       if t == "PO" then return e and e.owner and { player = e.owner } or nil end
-      if t == "CON" then return (e and e.kind == "CONSTRUCTION") and { depots = {} } or nil end
+      if t == "CON" then return (e and e.kind == "CONSTRUCTION") and { depots = {}, fileName = e.file or "", transf = { [13] = e.x or 0, [14] = e.y or 0 } } or nil end
       if t == "LINE" then return (e and e.kind == "LINE") and {} or nil end
       if t == "TV" then return (e and e.kind == "VEHICLE") and { line = e.line or -1 } or nil end
       if t == "NAME" then return W.names[eid] and { name = W.names[eid] } or nil end
@@ -92,12 +92,21 @@ game = { interface = {
     if W.ents[eid] then W.ents[eid].owner = pid end
   end,
   setBulldozeable = function() end,
+  bulldoze = function(id)
+    local e = W.ents[id]
+    if not e then error("no entity") end
+    local p = W.players[e.owner]
+    if p then p.balance = p.balance + (e.refund or 0) end
+    W.ents[id] = nil
+    return true
+  end,
 } }
 local function esc(s) return (tostring(s or ""):gsub("[^%w%-%._~]", function(c) return string.format("%%%02X", c:byte()) end)) end
 local function unesc(s) return (tostring(s or ""):gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)) end
 package.preload["mp.shared_infra"] = function() return assert(load(SHARED, "@shared_infra.lua"))() end
 local K = { INSTANCE = INSTANCE, BASE = BASE, IDENTITY_FILE = BASE .. "tpf2_instance.txt", JOURNAL_TRANSFER = 6, JOURNAL_LOAN = 0 }
-local CM = { ticks = 0, peerSeen = true, escName = esc, unescName = unesc }
+local CM = { ticks = 0, peerSeen = true, escName = esc, unescName = unesc, expectedDemolish = {},
+             conKey = function(x, y) return string.format("%.1f/%.1f", x, y) end }
 local logs = {}
 local log = function(s) logs[#logs + 1] = s end
 T.CM, T.K, T.logs = CM, K, logs
@@ -115,7 +124,7 @@ CM.cmLog = function(s) logs[#logs + 1] = s end
 -- the world a save holds: players (pid -> balance/loan), entities (eid -> kind/owner), the save's human
 function T.world(players, ents, human)
   for pid, p in pairs(players) do W.players[pid] = { balance = p.balance or 0, loan = p.loan or 0 } end
-  for eid, e in pairs(ents) do W.ents[eid] = { kind = e.kind, owner = e.owner, line = e.line, parked = e.parked } end
+  for eid, e in pairs(ents) do W.ents[eid] = { kind = e.kind, owner = e.owner, line = e.line, parked = e.parked, file = e.file, x = e.x, y = e.y, refund = e.refund } end
   W.human = human
 end
 function T.apply(c) CM.cmAttribute(c); if c.op:sub(1, 2) == "CM" then CM.execCompanyCmd(c) end; CM.cmLoadSwitchTick(); return c.company end

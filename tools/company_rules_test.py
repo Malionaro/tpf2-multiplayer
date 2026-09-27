@@ -16,7 +16,7 @@ company_perms, company_player_name) checked, against the registry of 2026-09-27:
 """
 import os
 
-from company_harness import check, fails, Machine, Session, to_lua, from_lua, TOWN
+from company_harness import check, fails, Machine, Session, to_lua, from_lua, TOWN, same_company_state
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INJECT = open(os.path.join(REPO, "mod", "mp_lockstep_1", "res", "scripts", "mp", "inject.lua"), encoding="utf-8", errors="replace").read()
@@ -153,6 +153,46 @@ Z.T.W.nextPid = 5000                           # (new entities numbered apart fr
 Z.load(rec)
 Z.boot()
 check("a saved entity that is gone is replaced", Z.cm().cmCompanyPid[2] not in (None, pid2), str(Z.cm().cmCompanyPid[2]))
+
+# ---------------- one headquarters per company, also after a delete ----------------
+def hq_session():
+    A = Machine("a", "7656100000000001", "Ada", ROSTER, chip=1)
+    B = Machine("b", "7656100000000002", "Bob", ROSTER, chip=2)
+    for m in (A, B):
+        m.world({100: {"balance": 1000}}, TOWN, 100)
+        m.boot()
+        m.join()
+    s = Session([A, B])
+    s.pump()
+    s.request(B, "CMNEW 0 1 Spare")            # Bob founds a third company and leaves it again
+    s.pump()
+    spare = B.cm().cmMyCompany
+    s.request(B, "CMSWITCH 2")
+    s.pump()
+    return A, B, s, spare
+
+def give_hq(m, cid, eid, x):
+    pid = m.cm().cmCompanyPid[cid]
+    m.T.W.ents[eid] = m.L.table_from({"kind": "CONSTRUCTION", "owner": pid, "file": "asset/headquarter.con", "x": x, "y": 0, "refund": 500})
+
+A, B, s, spare = hq_session()
+for m in (A, B):
+    give_hq(m, spare, 8001, 10)
+    give_hq(m, 1, 8002, 20)
+s.request(A, f"CMDEL {spare} 1")
+s.pump()
+check("deleting a company whose taker has an HQ removes the deleted one's", all(m.T.W.ents[8001] is None and m.T.W.ents[8002] is not None for m in (A, B)))
+check("... and marks the removal as expected (no DEMOLISH echo)", A.cm().expectedDemolish["10.0/0.0"] is True)
+check("... the taker keeps exactly one HQ", len(list(A.cm().cmHQsOf(A.cm().cmCompanyPid[1]).values())) == 1)
+same_hq = [m.holdings(1)[1] for m in (A, B)]
+check("... and every machine ends with the same wallet for the taker", same_hq[0] == same_hq[1], str(same_hq))
+
+A, B, s, spare = hq_session()
+for m in (A, B):
+    give_hq(m, spare, 8001, 10)
+s.request(A, f"CMDEL {spare} 1")
+s.pump()
+check("a taker without an HQ takes the deleted company's over", all(m.T.W.ents[8001] is not None and m.T.W.ents[8001].owner == m.cm().cmCompanyPid[1] for m in (A, B)))
 
 print("FAILED: " + ", ".join(fails) if fails else "ALL PASS: the registry's rules hold")
 raise SystemExit(1 if fails else 0)
