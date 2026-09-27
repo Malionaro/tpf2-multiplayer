@@ -46,6 +46,10 @@ void WorkThreads(DWORD& ui, DWORD& command);
 // The hold itself (waiting for a gesture to finish) always applies; whether the
 // game window then SWALLOWS keys and the mouse while held is SetInputBlocking.
 bool SetActionsHeld(bool held);
+// The virtual key or mouse button still down in the focused game window that
+// keeps SetActionsHeld(true) from holding, 0 when none (or the game is not in
+// the foreground: input to other programs never reaches it).
+int ActiveGestureKey();
 // Off by default since 2026-09-22 (user: "disable the resync guard disabling all
 // game input"): a held session freezes nothing but the sim -- the camera, menus
 // and windows stay usable. What protects the world is the Lua hold (the GUI
