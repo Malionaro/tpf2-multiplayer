@@ -419,3 +419,8 @@ The [dev `52a1630a` integration](docs/linux/UPSTREAM_dev_52a1630a.md) validates
 native dedicated descriptor recycling's reset slot at dispatcher +0xb28 and
 names failed lookups while retaining the Linux byte guard. Lab startup was
 blocked before game execution; runtime activation remains unvalidated.
+
+The [dev `4d03caf7` integration](docs/linux/UPSTREAM_dev_4d03caf7.md) retains
+upstream's Sandbox tools and TownInfo research. This documentation-only change
+adds no town replication; its Windows measurements do not establish native or
+cross-platform town-creation determinism. Version remains 0.7.0.7.
