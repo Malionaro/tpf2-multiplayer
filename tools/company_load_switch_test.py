@@ -34,7 +34,7 @@ local function sink() return setmetatable({}, { __index = function() return sink
 api = sink(); game = sink()
 package.preload["mp.shared_infra"] = function() return assert(load(SHARED, "@shared_infra.lua"))() end
 local K = setmetatable({ INSTANCE = "b", BASE = "" }, { __index = function() return nil end })
-local CM = setmetatable({ ticks = 0 }, { __index = function() return function() return nil end end })
+local CM = { ticks = 0 }
 local logs = {}
 local log = function(s) logs[#logs + 1] = s end
 assert(load(SRC, "@companies.lua"))()(CM, K, log)
@@ -90,10 +90,8 @@ end
 function T.answers()
   answers = true
   CM.cmLoadSwitchTick()
-  -- the stub CM answers a cleared field with a function (the real one is a plain
-  -- table): "no longer a number" is what "cleared" means here
   CM.cmLoadSwitchTick()
-  return #switched, switched[1], type(CM.cmSwitchWanted) == "number" and CM.cmSwitchWanted or "cleared"
+  return #switched, switched[1], CM.cmSwitchWanted
 end
 -- a world that never answers is not held for ever
 function T.giveUp()
@@ -121,6 +119,32 @@ function T.goneSavedPid()
   CM.cmEnsure()
   return CM.cmCompanyPid[1], added
 end
+-- The secondary readiness signal must work even while construction queries fail.
+function T.lineAnswer()
+  world(); switched = {}; CM.cmMyCompany = 1; CM.cmSwitchWanted = 2; CM.cmSwitchTries = 0
+  game.interface.getEntities = function() error("world loading") end
+  api.engine.system.lineSystem.getLines = function() return { 7001 } end
+  CM.cmLoadSwitchTick()
+  return #switched, CM.cmSwitchWanted
+end
+function T.queryFailures()
+  world(); switched = {}; CM.cmMyCompany = 1; CM.cmSwitchWanted = 2; CM.cmSwitchTries = 0
+  game.interface.getEntities = function() error("world loading") end
+  api.engine.system.lineSystem.getLines = function() error("world loading") end
+  CM.cmLoadSwitchTick()
+  return #switched, CM.cmSwitchWanted
+end
+function T.beforeTimeout()
+  world(); answers = false; switched = {}
+  CM.cmMyCompany = 1; CM.cmSwitchWanted = 2; CM.cmSwitchTries = CM.CM_SWITCH_WAIT_TICKS - 2
+  CM.cmLoadSwitchTick()
+  return #switched, CM.cmSwitchWanted
+end
+function T.alreadySelected()
+  switched = {}; CM.cmMyCompany = 2; CM.cmSwitchWanted = 2
+  CM.cmLoadSwitchTick()
+  return #switched, CM.cmSwitchWanted
+end
 function T.logs() return table.concat(logs, "\n") end
 return T
 ''')
@@ -135,8 +159,8 @@ check("a world that answers nothing does not get the switch", n == 0 and wanted 
 check("the wait is logged", "waits for a world that answers" in T.logs())
 
 n, first, wanted = T.answers()
-check("the tick after the world answers switches", first == 2, f"{n} {first}")
-check("... and the request is cleared", wanted == "cleared", str(wanted))
+check("the tick after the world answers switches", n == 1 and first == 2, f"{n} {first}")
+check("... and the request is cleared", wanted is None, str(wanted))
 
 n, wanted = T.giveUp()
 check("a world that never answers is not held for ever", n == 1, f"{n}")
@@ -149,6 +173,15 @@ check("... and companies mode comes up ready", ready is True, str(ready))
 
 pid, added = T.goneSavedPid()
 check("a saved entity that is gone is replaced", pid == 900001 and added == 1, f"{pid} {added}")
+
+n, wanted = T.lineAnswer()
+check("a line answers even when the construction query throws", n == 1 and wanted is None)
+n, wanted = T.queryFailures()
+check("failed queries keep the switch pending", n == 0 and wanted == 2)
+n, wanted = T.beforeTimeout()
+check("the tick before timeout still waits", n == 0 and wanted == 2)
+n, wanted = T.alreadySelected()
+check("an already selected company clears the request without switching", n == 0 and wanted is None)
 
 print("FAILED: " + ", ".join(fails) if fails else "ALL PASS: the load-time switch waits for the world, and a live saved company entity is kept")
 raise SystemExit(1 if fails else 0)

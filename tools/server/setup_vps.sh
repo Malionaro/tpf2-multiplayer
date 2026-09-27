@@ -34,6 +34,7 @@ install -m 755 "$HERE/steam_login.sh" $DEST/steam_login.sh
 install -m 755 "$HERE/steam_bootstrap.sh" $DEST/steam_bootstrap.sh
 install -m 644 "$HERE/steam_compat.py" $DEST/steam_compat.py
 install -m 755 "$HERE/game_watchdog.sh" $DEST/game_watchdog.sh
+install -m 644 "$HERE/native_watchdog.py" $DEST/native_watchdog.py
 install -m 644 "$HERE/server.env.example" $DEST/server.env.example
 [ -f /etc/tpf2mp/server.env ] || { mkdir -p /etc/tpf2mp; install -m 644 "$HERE/server.env.example" /etc/tpf2mp/server.env; }
 sed -i "s/^DISPLAY=.*/DISPLAY=:$DISPLAY_NUM/" /etc/tpf2mp/server.env

@@ -197,7 +197,7 @@ installing the new MSI (or running the Proton installer again): there is no in-g
 3. Tag the commit `v<version>`. Push the tag before fast-forwarding `main` to it: the workflow builds on tags and on
    `main`, and a `main` push whose commit a tag already built is skipped, so a release costs one build. Nothing
    builds on `dev`. The tag run builds the install files (below) as a workflow artifact and drafts the release
-   with a **Download** table of the two launchers (linked on the `<version>` page), followed by `installer/RELEASE-<version>.md` when that file
+   with a **Download** table of the two launchers (linked on the `v<version>` page), followed by `installer/RELEASE-<version>.md` when that file
    exists, then GitHub's generated list of pull requests. The Proton installers are pinned to the tag by the
    workflow.
    **Since 0.7.0.6 a version's page `v<version>` shows the two launchers only** (the user, 2026-09-26: releases

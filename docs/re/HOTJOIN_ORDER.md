@@ -259,9 +259,10 @@ load (`sync_runtime`: a kept member pauses its world -- only the one the round
 found, held, paused, engine idle -- and acks `kept=True`). The paused
 fingerprints still decide: a difference empties `retain` and repeats `loading`
 once under a fresh epoch, i.e. the frozen join everyone knows; a difference after
-that is the ordinary error. A retry is always the plain round. On by default
-since 0.7 (every peer has the engine sorts); `tpf2mp_live_join.txt` = `0` in the
-host's io dir (read at each join) turns it off.
+that is the ordinary error. A retry is always the plain round. Windows 0.7 enables live join by default;
+`tpf2mp_live_join.txt` = `0` turns it off. Native Linux keeps explicit opt-in
+(`1`, `on`, `yes`) until the canonical-order lifetime checks below pass.
+Read at each join.
 
 Nobody waits for members still loading (0.7, `pacing.lua` load gate): the roster
 hold is gone (`loadgate_roster=1` in tpf2_slice.cfg brings it back locally). A
@@ -274,9 +275,11 @@ id is the lobby nonce, which the menu writes into `tpf2_bridge_ctl.txt` as
 dedicated server (0.7-native, 2026-09-22) the ctl file had no `lobby=` line, so its
 bridge stayed in world `00000000`: a live joiner's game and the server dropped each
 other's frames and both held (joiner: "the leader (a) has not been heard"). Writing
-the line by hand joined them at once. The Linux menu (`native/linux/`) must write
-`lobby=` exactly like `native/src/menu_hook.cpp` (the `bridge ctl` writer), also
-when the `transport_lobby` event arrived before the menu first wrote the file. Tests: `tools/test_sync_operation.py`,
+the line by hand joined them at once. The Linux menu (`native/linux/`) now writes
+`lobby=` like `native/src/menu_hook.cpp` (the `bridge ctl` writer), also
+when the `transport_lobby` event arrived before the menu first wrote the file.
+The nonce is retained in the session model and cleared for a new session; see
+[the native integration](../linux/UPSTREAM_dev_0a35d0a8.md). Tests: `tools/test_sync_operation.py`,
 `tools/test_sync_runtime.py` (live-join cases).
 
 ## Every family's node list, in entity order at every sim iteration
@@ -315,9 +318,53 @@ engines of every peer, whatever history they have.
   merged back -- and each full index slot is rewritten through the old->new
   position map after checking that every slot names its node. Anything else is
   refused and left untouched (logged).
-- Native Linux: not ported yet. Site: `Engine::Update` 0x32515b0 entry
+- Native Linux: guarded implementation, enabled by default since dev ad3d66e4.
+  Static/fixture evidence is in [linux/DEV_0115785C.md](linux/DEV_0115785C.md);
+  loaded-game lifetime validation remains outstanding. Site: `Engine::Update` 0x32515b0 entry
   (`f3 0f 1e fa 55 48 89 e5 41 57 41 56 41 55 41 54`, rdi = the engine), same
   walk over the libstdc++ family map; family_canon.h is portable.
+
+### Native: GCC keeps one GetNodeList per family (fixed 2026-09-23)
+
+The native step canon recognised a family's node list by ONE getter address,
+`0xa914c0` (`endbr64; lea rax,[rdi+8]; ret`), and a list-less family by
+`0xa914e0`. That is the Windows design, where MSVC's identical-code folding
+makes every `ComponentGroupFamily<...>::GetNodeList` one function (0xba990).
+GCC does not fold them: build 35924 has **28** node-list getters and **35**
+no-list getters, one per family template instantiation
+(`tools/linux/gen_family_getters.py` lists them from the ELF's own vtables).
+Only PersonCapacity used `0xa914c0` and only VehicleOrder `0xa914e0`, so every
+native peer since 0.7 sorted 1 of its 28 node lists and refused the other 61
+families -- Town, TownBuilding, Construction, BaseEdge, TownConnection,
+SimBuilding, StockList, Station, the vehicle families -- while every Windows
+peer sorted all 28. The production server logged it at every iteration:
+
+```
+[order-canon] step engine=... families=63/63 lists=1 reordered=0 moved=0 unknown/refused=61
+```
+
+(Windows: `63 families, 28 node lists ..., 0 not understood`.) The native
+lists therefore stayed in load/history order while the Windows lists were in
+entity order: the TownSystem staggers town `i` of its node list to
+`t % 120 == (i % 30) * 4` and hands every town of a tick one mt19937 seeded
+from `t`, so a list in another order develops towns at other ticks with other
+draws (the native load order is not entity order: the one list it did sort,
+PersonCapacity, needed ~5,300 nodes moved at the first iteration after every
+load). Every native session since 0.7 split in town growth within one to
+three hash stamps of each join (for example 390 and 475 game units after the
+joiner's load on 2026-09-23), in several towns at once; the
+0.6.1.28-native sessions, which had no step canon on either side, held
+(1,800 units and 36 new street edges, 2026-09-22).
+
+Fix: `native/linux/src/family_getters_linux.h`, generated from the ELF,
+lists all 63 getters; install verifies each byte for byte; the canon
+classifies a family by that table and still calls none of them.
+`tests/family_canon_elf_test.cpp` (manual, needs the game ELF) maps the real
+image, applies its relocations, gives an engine the binary's own 63 family
+vtables with unsorted lists and runs one iteration: 28 lists sorted, 0
+refused; with the old check it prints the server's `lists=1 ...
+unknown/refused=61`. After deployment the server's log must read
+`lists=28 ... unknown/refused=0`.
 
 ## Not covered yet
 
@@ -346,3 +393,8 @@ both, collects paired dumps and compares; `--control` makes the host reload too,
 `--save NAME` picks the host's world, `--prejoin S` lets the host run alone
 first. `hj_watch.py` follows a long run (hash lanes + dumps), `hj_long.py` /
 `hj_compare.py` compare. Production (`tpf2mp-game`) is never touched.
+
+Native integration: [dev 7cacbaaf](../linux/UPSTREAM_dev_7cacbaaf.md) replaces
+family mapping snapshots with permission-aware PROCMAP_QUERY on Linux 6.11+;
+older kernels keep a buffered snapshot fallback. Endpoint-only probes and
+refresh-on-miss caches do not preserve the full range/write-permission contract.

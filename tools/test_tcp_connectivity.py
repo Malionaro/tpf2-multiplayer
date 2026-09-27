@@ -22,6 +22,20 @@ import lobby
 
 
 class TcpConnectivity(unittest.TestCase):
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux bound dial contract")
+    def test_listener_allows_bound_dial_port(self):
+        listener = bulk_tcp.BulkListener(0)
+        self.addCleanup(listener.close)
+        for endpoint in listener.sockets:
+            self.assertEqual(endpoint.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT), 1)
+            dial = socket.socket(endpoint.family, socket.SOCK_STREAM)
+            self.addCleanup(dial.close)
+            dial.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            dial.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            if endpoint.family == socket.AF_INET6:
+                dial.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+            dial.bind(endpoint.getsockname())
+
     def test_receiver_uses_senders_stream_when_both_ends_dial(self):
         receiver = lobby._ClientSaveReceiver.__new__(lobby._ClientSaveReceiver)
         receiver.sid, receiver.kind, receiver.total_bytes = 7, "save", 6
@@ -87,6 +101,29 @@ class TcpConnectivity(unittest.TestCase):
         # a direct join still dials the address the lobby came from
         self.assertEqual(self._begin_through(("198.51.100.7", 29471), {"port": 29471, "token": "t"}), ["198.51.100.7"])
 
+    def test_host_advertises_tcp_addresses_to_relayed_targets(self):
+        relay = ("192.0.2.1", 29600)
+        direct = ("198.51.100.7", 29471)
+        addresses = ["203.0.113.5", "2001:db8::5"]
+        listener = types.SimpleNamespace(port=29471, expect=lambda *args: None)
+        with patch.object(lobby, "MASTER_RELAY_ADDRS", {relay}), \
+             patch.object(lobby, "BULK_TCP", [True]), \
+             patch.object(lobby, "BULK", [listener]), \
+             patch.object(lobby, "MY_TCP_ADDRS", [addresses]):
+            for peers, advertised in (([relay], True), ([direct, relay], True), ([direct], False)):
+                with self.subTest(peers=peers):
+                    transfer = lobby._HostSaveTransfer(
+                        None, 5, b"ABCDEF", [{"name": "incoming_save.sav", "size": 6}],
+                        [(peer, str(i)) for i, peer in enumerate(peers)], None, lambda *args: None)
+                    tcp = transfer.begin_msg["tcp"]
+                    self.assertEqual(tcp["port"], listener.port)
+                    self.assertTrue(tcp["token"])
+                    if advertised:
+                        self.assertEqual(tcp["addrs"], addresses)
+                        self.assertIsNot(tcp["addrs"], addresses)
+                    else:
+                        self.assertNotIn("addrs", tcp)
+
     def test_master_pipe_pairs_by_id_and_role(self):
         import masterserver
         port = masterserver.start_pipe(0, "127.0.0.1")
@@ -128,13 +165,25 @@ class TcpConnectivity(unittest.TestCase):
         pair = os.urandom(16).hex()
         h = threading.Thread(target=host._pipe_serve, args=(p, pair, ("127.0.0.1", port)), daemon=True)
         h.start()
-        rx._pipe_pull("127.0.0.1", port, pair, 9, host.tcp_token)
-        h.join(10)
+        # TCP recv sizes vary by platform: even 3 MiB can fill the bounded
+        # queue. Consume while reading, as the real lobby loop does.
+        j = threading.Thread(target=rx._pipe_pull,
+                             args=("127.0.0.1", port, pair, 9, host.tcp_token), daemon=True)
+        j.start()
         chunks = []
-        while not rx._tcp_q.empty():
-            sid, chunk = rx._tcp_q.get_nowait()
-            if chunk is not None:
-                chunks.append(chunk)
+        while True:
+            try:
+                sid, chunk = rx._tcp_q.get(timeout=10)
+            except queue.Empty:
+                self.fail("pipe stopped producing chunks: " + "\n".join(map(str, logs)))
+            self.assertEqual(sid, 9)
+            if chunk is None:
+                break
+            self.assertNotEqual(chunk, b"", "pipe stream failed")
+            chunks.append(chunk)
+        h.join(10)
+        j.join(10)
+        self.assertFalse(h.is_alive() or j.is_alive(), "pipe workers did not finish")
         self.assertEqual(b"".join(chunks), blob, "\n".join(map(str, logs)))
         self.assertTrue(p["tcp"] and rx.tcp_active)
 
@@ -227,6 +276,16 @@ class TcpConnectivity(unittest.TestCase):
 
 
 class RouterMapping(unittest.TestCase):
+    def test_cli_tcp_mapping_and_cleanup_use_linux_wrapper(self):
+        calls = []
+        def run(exe, args):
+            calls.append(args)
+            return types.SimpleNamespace(returncode=0, stdout="local lan ip address: 192.0.2.2\n")
+        with patch.dict(sys.modules, {"miniupnpc": None}), patch.object(observe.shutil, "which", return_value="upnpc"), patch.object(observe, "_upnpc_run", side_effect=run):
+            self.assertTrue(observe.upnp_map(23456, keep=True)["tcp_open"])
+            self.assertTrue(observe.upnp_unmap(23456))
+        self.assertEqual([a[-1] for a in calls], ["-l", "UDP", "TCP", "TCP", "UDP"])
+
     def mapping(self, udp, tcp, keep=True):
         calls = []
 

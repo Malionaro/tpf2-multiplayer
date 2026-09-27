@@ -35,6 +35,7 @@ the paired socket the joiner says the hello above and the host answers it
 (accept_hello), exactly as over a direct connection.
 """
 import socket
+import sys
 import threading
 import time
 
@@ -81,6 +82,9 @@ class BulkListener:
         s = socket.socket(family, socket.SOCK_STREAM)
         try:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            # Bound Linux dial sockets need SO_REUSEPORT on both ends.
+            if sys.platform.startswith("linux"):
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
             if family == socket.AF_INET6:
                 s.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
             s.bind((bind, port))
