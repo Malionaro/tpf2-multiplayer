@@ -175,12 +175,31 @@ T.click("DELETE...")
 T.refresh(DASH)
 check("DELETE... replaces the actions with the confirmation", T.D.coDelBox.visible and not T.D.coSelBox.visible and "Delete Vault?" in T.D.coDelText.text, T.D.coDelText.text)
 combo = T.D.coDelCombo
-check("the takeover choice lists the other companies", len(list(combo["items"].values())) == 2, str(list(combo["items"].values())))
+check("the takeover choice lists the other companies, then Nobody", len(list(combo["items"].values())) == 3, str(list(combo["items"].values())))
 combo.changed(1)       # the second entry
 into = T.D.coDelInto
 T.D.coSelPwInput.text = "x"
 T.click("DELETE")
 check("DELETE names the company that takes over", T.injected() == f"CMDEL {vault} {into} x\n" and into in (1, 2))
+
+# delete with nobody taking over: it is last in the list, and needs a second click
+T.D.coRows[vault_row].btn.click()
+T.refresh(DASH)
+T.click("DELETE...")
+T.refresh(DASH)
+items = list(T.D.coDelCombo["items"].values())
+check("'Nobody' is offered, last (never preselected)", items[-1].startswith("Nobody") and not items[0].startswith("Nobody"), str(items))
+T.D.coDelCombo.changed(len(items) - 1)
+T.refresh(DASH)
+check("choosing nobody turns the button into DELETE EVERYTHING, in red", T.D.coDelNowTv.text == "DELETE EVERYTHING" and T.D.coDelNow.classes[1] == "mpCoDanger",
+      T.D.coDelNowTv.text)
+T.D.coSelPwInput.text = "x"
+T.D.coDelNow.click()
+T.refresh(DASH)
+check("the first click only asks again", T.injected() == "" and T.D.coDelNowTv.text == "DELETE EVERYTHING - SURE?" and "REALLY DELETE EVERYTHING" in T.D.coDelText.text,
+      T.D.coDelText.text)
+T.D.coDelNow.click()
+check("the second click deletes with nobody taking over", T.injected() == f"CMDEL {vault} 0 x\n")
 
 # a new company
 T.click("+ NEW COMPANY")

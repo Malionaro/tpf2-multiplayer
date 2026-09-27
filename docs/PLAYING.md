@@ -176,7 +176,11 @@ who plays it and whether it is locked; yours is first. Click a company to select
 - **Switch to it** plays that company instead of yours (a locked company asks for its password
   first). Several players may play one company together.
 - **Delete...** deletes it: choose which company takes over everything it owns, its money and its
-  loan, then **Delete now**. Nobody may be playing it, and a locked one needs its password.
+  loan, then **Delete**. Or choose **Nobody**: its vehicles are sold, its lines, buildings, roads and
+  tracks removed and its money and loan dropped; that asks for a second click (**Delete everything**).
+  What the game will not remove (a station another company's line still serves) goes to your company.
+  Nobody may be playing the company, and a locked one needs its password. When the company taking
+  over already has a headquarters, the deleted company's is removed; otherwise it takes it over.
 - **Allow** / **Deny** decides whether its vehicles may stop at your stations.
 
 Every company starts the way the first one did: the first company has the new game's starting

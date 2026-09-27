@@ -77,6 +77,9 @@ function data()
 	a("!mpDashBody TextView!mpCoDim", { fontSize = 12, color = ssu.makeColor(170, 188, 202) })
 	a("!mpDashBody !mpCoRow", { padding = { 1, 4, 1, 4 } })
 	a("!mpDashBody !mpCoSel", { padding = { 1, 4, 1, 4 }, backgroundColor = ssu.makeColor(255, 255, 255, 28) })
+	-- deleting a company with nobody taking over removes everything: its button is red
+	a("!mpDashBody Button!mpCoDanger", { backgroundColor = ssu.makeColor(170, 35, 35, 210) })
+	a("!mpDashBody Button!mpCoDanger:hover", { backgroundColor = ssu.makeColor(200, 45, 45, 230) })
 
 	a("!mpDashBody TextView", { padding = { 3, 4, 3, 4 } })
 	a("!mpDashTabs TextView", { padding = { 4, 8, 4, 8 }, fontSize = 13 })

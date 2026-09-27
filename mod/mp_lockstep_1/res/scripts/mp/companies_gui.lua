@@ -293,8 +293,11 @@ function CM.coGuiBuild(D, box)
 	D.coDelPickL = gui().layout.BoxLayout.new("HORIZONTAL")
 	D.coDelPick = gui().comp.Component.new("mpCompanyDelPick")
 	D.coDelPick:setLayout(D.coDelPickL)
-	D.coDelNow = CM.coGuiButton("Delete", function()
+	D.coDelNow, D.coDelNowTv = CM.coGuiButtonTv("Delete", function()
 		if not D.coSel or not D.coDelInto or D.coDelInto == D.coSel then return end
+		-- nobody taking over removes everything: that needs a second, deliberate click
+		if D.coDelInto == 0 and not D.coDelArmed then D.coDelArmed = true; return end
+		D.coDelArmed = false
 		local pw = CM.coGuiGet(D.coSelPwInput)
 		CM.coGuiSend("CMDEL " .. D.coSel .. " " .. D.coDelInto .. (pw ~= "" and (" " .. pw) or ""))
 		CM.coGuiClear(D.coSelPwInput)
@@ -303,7 +306,7 @@ function CM.coGuiBuild(D, box)
 	end, "mpDashPrimary")
 	D.coDelBox = CM.coGuiBox({ D.coDelText,
 		CM.coGuiBox({ CM.coGuiText("Everything goes to"), D.coDelPick }, "mpCompanyDelInto"),
-		CM.coGuiBox({ D.coDelNow, CM.coGuiButton("Cancel", function() D.coDelOpen = false end) }, "mpCompanyDelActions") },
+		CM.coGuiBox({ D.coDelNow, CM.coGuiButton("Cancel", function() D.coDelOpen = false; D.coDelArmed = false end) }, "mpCompanyDelActions") },
 		"mpCompanyDelete", "VERTICAL")
 	V:addItem(D.coDelBox)
 	-- the note
@@ -318,18 +321,19 @@ end
 function CM.coGuiDelPick(D, st)
 	local items = {}
 	for _, it in ipairs(st.list) do if it.cid ~= D.coSel then items[#items + 1] = it end end
+	items[#items + 1] = { cid = 0, name = "Nobody: everything is removed", nobody = true }
 	local sig = {}
 	for _, it in ipairs(items) do sig[#sig + 1] = it.cid .. "=" .. it.name end
 	sig = table.concat(sig, "|") .. "|sel=" .. tostring(D.coSel)
 	if sig == D.coDelSig then return end
 	D.coDelSig, D.coDelItems = sig, items
 	local cb = gui().comp.ComboBox.new()
-	for _, it in ipairs(items) do cb:addItem(it.name .. (it.cid == D.coMine and "  (yours)" or "") .. (it.locked and "  (locked)" or "")) end
+	for _, it in ipairs(items) do cb:addItem(it.name .. ((not it.nobody and it.cid == D.coMine) and "  (yours)" or "") .. (it.locked and "  (locked)" or "")) end
 	D.coDelBuilding = true
 	cb:onIndexChanged(function(i)
 		if D.coDelBuilding then return end
 		local it = D.coDelItems and D.coDelItems[(tonumber(i) or -1) + 1]
-		if it then D.coDelInto = it.cid end
+		if it then D.coDelInto = it.cid; D.coDelArmed = false end
 	end)
 	if D.coDelCombo then
 		if not pcall(function() D.coDelPickL:removeItem(D.coDelCombo) end) then CM.coGuiShow(D.coDelCombo, false) end
@@ -395,9 +399,19 @@ function CM.coGuiRefresh(D, kv, guiTick)
 	local delOpen = D.coDelOpen and other
 	CM.coGuiShow(D.coDelBox, delOpen)
 	if delOpen then
-		CM.coGuiSetText(D, "delText", D.coDelText, "Delete " .. sel.name .. "? Its vehicles, lines, stations, money and loan go to another company."
-			.. (#sel.playing > 0 and "  Someone is playing it: the game will refuse." or ""))
 		CM.coGuiDelPick(D, st)
+		local text
+		if D.coDelInto == 0 and D.coDelArmed then
+			text = "REALLY DELETE EVERYTHING? Every vehicle, line, building, road and track of " .. sel.name
+				.. " is removed, its money and loan are gone. This cannot be undone. Click DELETE EVERYTHING again to do it."
+		elseif D.coDelInto == 0 then
+			text = "Delete " .. sel.name .. " and remove everything it has: vehicles are sold, lines, buildings, roads and tracks removed, money and loan dropped."
+		else
+			text = "Delete " .. sel.name .. "? Its vehicles, lines, stations, money and loan go to the company chosen below."
+		end
+		CM.coGuiSetText(D, "delText", D.coDelText, text .. (#sel.playing > 0 and "  Someone is playing it: the game will refuse." or ""))
+		CM.coGuiSetText(D, "delNow", D.coDelNowTv, D.coDelInto == 0 and (D.coDelArmed and "DELETE EVERYTHING - SURE?" or "DELETE EVERYTHING") or "DELETE")
+		CM.coGuiSetClass(D, "delNowCls", D.coDelNow, D.coDelInto == 0 and "mpCoDanger" or "mpDashPrimary")
 	end
 	-- new company / settings
 	CM.coGuiShow(D.coNewBox, D.coNewOpen)

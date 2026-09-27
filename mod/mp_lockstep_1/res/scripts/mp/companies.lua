@@ -1251,12 +1251,113 @@ function CM.cmRemoveHQs(fromPid, toPid, why)
 		CM.cmLog(string.format("CM: %s: headquarters %d removed (ok=%s)", tostring(why), id, tostring(ok)))
 	end
 end
--- Delete company cid: everything it owns, its money and its loan go to `into`.
+-- DELETE WITH NOBODY TAKING OVER (2026-09-27, user): the company's things go.
+-- Every machine does the same at the stamp, in id order: vehicles sold, lines
+-- deleted, buildings bulldozed (marked as expected, so the removal tracker ships
+-- nothing), its road and track pieces removed in one proposal (with the nodes
+-- that would be left bare), and its money and loan set to nothing. What the game
+-- will not remove (a station another company's line still serves) goes to
+-- `heirPid`, the deleting player's company. Returns what went and what was kept.
+function CM.cmWipe(fromPid, heirPid, why)
+	local sold, lines, built, edges, kept = 0, 0, 0, 0, 0
+	local function owned(kind)
+		local out = {}
+		pcall(function()
+			for _, id in pairs(game.interface.getEntities({ radius = 999999 }, { type = kind, includeData = false }) or {}) do
+				if CM.cmOwnerOf(id) == fromPid then out[#out + 1] = id end
+			end
+		end)
+		if kind == "VEHICLE" then
+			pcall(function()
+				local parked = api.engine.system.transportVehicleSystem.getVehiclesWithState(api.type.enum.TransportVehicleState.IN_DEPOT)
+				local seen = {}
+				for _, id in ipairs(out) do seen[id] = true end
+				for i = 1, #parked do if not seen[parked[i]] and CM.cmOwnerOf(parked[i]) == fromPid then out[#out + 1] = parked[i] end end
+			end)
+		end
+		table.sort(out)
+		return out
+	end
+	-- a sell / delete / removal the game refuses leaves the thing with the heir, not
+	-- with a company that no longer exists (the commands answer later: asynchronous)
+	local function toHeir(id, what)
+		if heirPid then pcall(function() CM.cmSetPlayer(id, heirPid) end) end
+		CM.cmLog(string.format("CM: %s: %s %d could not be removed -- kept by the deleting company", tostring(why), what, id))
+	end
+	for _, v in ipairs(owned("VEHICLE")) do
+		local ok = pcall(function() api.cmd.sendCommand(api.cmd.make.sellVehicle(v), function(_, okc) if not okc then toHeir(v, "vehicle") end end) end)
+		if ok then sold = sold + 1 else toHeir(v, "vehicle") end
+	end
+	local lineIds = {}
+	pcall(function()
+		local ls = api.engine.system.lineSystem.getLines()
+		for i = 1, #ls do if CM.cmOwnerOf(ls[i]) == fromPid then lineIds[#lineIds + 1] = ls[i] end end
+	end)
+	table.sort(lineIds)
+	for _, l in ipairs(lineIds) do
+		local ok = pcall(function() api.cmd.sendCommand(api.cmd.make.deleteLine(l), function(_, okc) if not okc then toHeir(l, "line") end end) end)
+		if ok then lines = lines + 1 else toHeir(l, "line") end
+	end
+	for _, id in ipairs(owned("CONSTRUCTION")) do
+		pcall(function()
+			local co = api.engine.getComponent(id, api.type.ComponentType.CONSTRUCTION)
+			if co and co.transf and CM.expectedDemolish and CM.conKey then CM.expectedDemolish[CM.conKey(co.transf[13], co.transf[14])] = true end
+		end)
+		pcall(function() game.interface.setBulldozeable(id, true) end)
+		if pcall(game.interface.bulldoze, id) then built = built + 1
+		else toHeir(id, "building"); kept = kept + 1 end
+	end
+	-- the road and track pieces, and any node that has no other edge left
+	local rm = owned("BASE_EDGE")
+	if #rm > 0 then
+		pcall(function()
+			local rmSet, nodeSet, nodes = {}, {}, {}
+			for _, e in ipairs(rm) do
+				rmSet[e] = true
+				local be = api.engine.getComponent(e, api.type.ComponentType.BASE_EDGE)
+				for _, n in ipairs({ be and be.node0, be and be.node1 }) do
+					if n and not nodeSet[n] then nodeSet[n] = true; nodes[#nodes + 1] = n end
+				end
+			end
+			table.sort(nodes)
+			local ss = api.engine.system.streetSystem
+			local maps = { ss.getNode2StreetEdgeMap(), ss.getNode2TrackEdgeMap() }
+			local orphans = {}
+			for _, n in ipairs(nodes) do
+				local total, gone = 0, 0
+				for _, m in ipairs(maps) do
+					for _, e in pairs((m and m[n]) or {}) do total = total + 1; if rmSet[e] then gone = gone + 1 end end
+				end
+				if total > 0 and total == gone then orphans[#orphans + 1] = n end
+			end
+			local sp = api.type.SimpleProposal.new()
+			for i, e in ipairs(rm) do sp.streetProposal.edgesToRemove[i] = e end
+			for i, n in ipairs(orphans) do sp.streetProposal.nodesToRemove[i] = n end
+			local ctx = api.type.Context.new()
+			ctx.cleanupStreetGraph = true
+			api.cmd.sendCommand(api.cmd.make.buildProposal(sp, ctx, true), function(_, ok2)
+				CM.cmLog(string.format("CM: %s: %d road/track piece(s) removed ok=%s", tostring(why), #rm, tostring(ok2)))
+				-- refused as a whole (a piece a building still needs): the pieces stay, with the heir
+				if not ok2 then for _, e in ipairs(rm) do if api.engine.entityExists(e) then toHeir(e, "road/track piece") end end end
+			end)
+			CM.edemoCache = nil
+			edges = #rm
+		end)
+	end
+	-- the money and the loan
+	local b, l = CM.cmWallet(fromPid)
+	if b then CM.cmSetWallet(fromPid, b, l, 0, 0) end
+	CM.cmLog(string.format("CM: %s: %d vehicle(s) sold, %d line(s), %d building(s), %d road/track piece(s) removed, %d kept", tostring(why), sold, lines, built, edges, kept))
+	return sold, lines, built, edges, kept
+end
+-- Delete company cid: everything it owns, its money and its loan go to `into`,
+-- or -- into = 0 -- to nobody: it is removed (CM.cmWipe).
 function CM.cmExecDelete(c, o, cid)
 	local into = tonumber(c.into)
 	local co = CM.co
 	local mineCid = CM.cmCompanyOfOrigin(o)
-	if not into or into == cid or not co.list[into] then return CM.cmNote("delete: choose another company to take over " .. CM.cmNameOf(cid)) end
+	local nobody = into == 0
+	if not nobody and (not into or into == cid or not co.list[into]) then return CM.cmNote("delete: choose another company to take over " .. CM.cmNameOf(cid)) end
 	local players = CM.cmPlayersOf(cid)
 	if #players > 0 then
 		local who = {}
@@ -1265,7 +1366,23 @@ function CM.cmExecDelete(c, o, cid)
 	end
 	local okPw, why = CM.cmPwOk(c, cid)
 	if not okPw then return CM.cmNote("delete refused: " .. why) end
-	if into ~= mineCid and co.list[into].pw then return CM.cmNote("delete: " .. CM.cmNameOf(into) .. " is locked -- hand the company to your own or an open one") end
+	if not nobody and into ~= mineCid and co.list[into].pw then return CM.cmNote("delete: " .. CM.cmNameOf(into) .. " is locked -- hand the company to your own or an open one") end
+	if nobody then
+		local fromName = CM.cmNameOf(cid)
+		local fromPid = CM.cmCompanyPid[cid]
+		local sold, lines, built, edges, kept = 0, 0, 0, 0, 0
+		if fromPid then sold, lines, built, edges, kept = CM.cmWipe(fromPid, mineCid and CM.cmCompanyPid[mineCid], "delete " .. cid .. " (nobody takes over)") end
+		-- its players are nobody's now: they get a company again when they next join
+		for k, m in pairs(co.members) do if m == cid then co.members[k] = nil end end
+		co.list[cid] = nil
+		for _, other in pairs(co.list) do if other.open then other.open[cid] = nil end end
+		CM.cmCompanyPid[cid] = nil
+		CM.cmRefreshDerived()
+		CM.cmApplyNames()
+		pcall(CM.cmWritePerms)
+		return CM.cmNote(string.format("%s deleted %s and everything it had: %d vehicle(s) sold, %d line(s), %d building(s), %d road/track piece(s) removed, money and loan dropped%s",
+			tostring(co.names[co.origin[o]] or o), fromName, sold, lines, built, edges, kept > 0 and string.format(" (%d thing(s) the game would not remove went to your company)", kept) or ""))
+	end
 	local fromName, intoName = CM.cmNameOf(cid), CM.cmNameOf(into)
 	local fromPid, toPid = CM.cmCompanyPid[cid], CM.cmCompanyPid[into]
 	local n = 0

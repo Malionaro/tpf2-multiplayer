@@ -29,7 +29,7 @@ HARNESS = r'''
 local SRC, SHARED, GUI, INSTANCE, BASE = ...
 local W = { ents = {}, players = {}, nextPid = 900, human = nil, cmds = {}, names = {}, colors = {} }
 local T = { W = W }
-local CT = { PLAYER_OWNED = "PO", CONSTRUCTION = "CON", LINE = "LINE", TRANSPORT_VEHICLE = "TV", NAME = "NAME", STATION_GROUP = "SG" }
+local CT = { PLAYER_OWNED = "PO", CONSTRUCTION = "CON", LINE = "LINE", TRANSPORT_VEHICLE = "TV", NAME = "NAME", STATION_GROUP = "SG", BASE_EDGE = "BE" }
 local function owner(eid) local e = W.ents[eid]; return e and e.owner end
 api = {
   type = {
@@ -37,6 +37,8 @@ api = {
     JournalEntryCategory = { new = function() return {} end },
     JournalEntry = { new = function() return {} end },
     Vec3f = { new = function(x, y, z) return { x, y, z } end },
+    SimpleProposal = { new = function() return { streetProposal = { edgesToRemove = {}, nodesToRemove = {} } } end },
+    Context = { new = function() return {} end },
     enum = { TransportVehicleState = { IN_DEPOT = 2 } },
   },
   engine = {
@@ -49,10 +51,12 @@ api = {
       if t == "LINE" then return (e and e.kind == "LINE") and {} or nil end
       if t == "TV" then return (e and e.kind == "VEHICLE") and { line = e.line or -1 } or nil end
       if t == "NAME" then return W.names[eid] and { name = W.names[eid] } or nil end
+      if t == "BE" then return (e and e.kind == "BASE_EDGE") and { node0 = e.n0, node1 = e.n1 } or nil end
       return nil
     end,
     system = {
       lineSystem = { getLines = function() local t = {}; for id, e in pairs(W.ents) do if e.kind == "LINE" then t[#t + 1] = id end end; table.sort(t); return t end },
+      streetSystem = { getNode2StreetEdgeMap = function() return {} end, getNode2TrackEdgeMap = function() return {} end },
       transportVehicleSystem = { getVehiclesWithState = function()
         local t = {}; for id, e in pairs(W.ents) do if e.kind == "VEHICLE" and e.parked then t[#t + 1] = id end end; table.sort(t); return t end },
     },
@@ -62,6 +66,9 @@ api = {
       bookJournalEntry = function(pid, entry) return { op = "journal", pid = pid, amount = entry.amount, type = entry.category.type } end,
       setName = function(pid, name) return { op = "name", pid = pid, name = name } end,
       setColor = function(id, c) return { op = "color", id = id, c = c } end,
+      sellVehicle = function(id) return { op = "sell", id = id } end,
+      deleteLine = function(id) return { op = "dline", id = id } end,
+      buildProposal = function(sp) return { op = "proposal", sp = sp } end,
     },
     sendCommand = function(cmd, cb)
       W.cmds[#W.cmds + 1] = cmd
@@ -72,7 +79,16 @@ api = {
           if cmd.type == 0 then p.loan = p.loan + cmd.amount end
         end
       elseif cmd.op == "name" then W.names[cmd.pid] = cmd.name
-      elseif cmd.op == "color" then W.colors[cmd.id] = cmd.c end
+      elseif cmd.op == "color" then W.colors[cmd.id] = cmd.c
+      elseif cmd.op == "sell" then
+        local e = W.ents[cmd.id]
+        if not e or e.stuck then if cb then cb({}, false) end; return end
+        local p = W.players[e.owner]; if p then p.balance = p.balance + (e.refund or 0) end
+        W.ents[cmd.id] = nil
+      elseif cmd.op == "dline" then W.ents[cmd.id] = nil
+      elseif cmd.op == "proposal" then
+        for _, eid in ipairs(cmd.sp.streetProposal.edgesToRemove) do W.ents[eid] = nil end
+      end
       if cb then cb({}, true) end
     end,
   },
@@ -95,6 +111,7 @@ game = { interface = {
   bulldoze = function(id)
     local e = W.ents[id]
     if not e then error("no entity") end
+    if e.stuck then error("in use") end
     local p = W.players[e.owner]
     if p then p.balance = p.balance + (e.refund or 0) end
     W.ents[id] = nil
@@ -124,7 +141,7 @@ CM.cmLog = function(s) logs[#logs + 1] = s end
 -- the world a save holds: players (pid -> balance/loan), entities (eid -> kind/owner), the save's human
 function T.world(players, ents, human)
   for pid, p in pairs(players) do W.players[pid] = { balance = p.balance or 0, loan = p.loan or 0 } end
-  for eid, e in pairs(ents) do W.ents[eid] = { kind = e.kind, owner = e.owner, line = e.line, parked = e.parked, file = e.file, x = e.x, y = e.y, refund = e.refund } end
+  for eid, e in pairs(ents) do W.ents[eid] = { kind = e.kind, owner = e.owner, line = e.line, parked = e.parked, file = e.file, x = e.x, y = e.y, refund = e.refund, stuck = e.stuck, n0 = e.n0, n1 = e.n1 } end
   W.human = human
 end
 function T.apply(c) CM.cmAttribute(c); if c.op:sub(1, 2) == "CM" then CM.execCompanyCmd(c) end; CM.cmLoadSwitchTick(); return c.company end

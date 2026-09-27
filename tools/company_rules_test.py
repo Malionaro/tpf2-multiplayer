@@ -194,5 +194,30 @@ s.request(A, f"CMDEL {spare} 1")
 s.pump()
 check("a taker without an HQ takes the deleted company's over", all(m.T.W.ents[8001] is not None and m.T.W.ents[8001].owner == m.cm().cmCompanyPid[1] for m in (A, B)))
 
+# ---------------- delete with nobody taking over: everything goes ----------------
+A, B, s, spare = hq_session()
+for m in (A, B):
+    pid = m.cm().cmCompanyPid[spare]
+    W = m.T.W
+    W.ents[9001] = m.L.table_from({"kind": "VEHICLE", "owner": pid, "refund": 50})
+    W.ents[9002] = m.L.table_from({"kind": "LINE", "owner": pid})
+    W.ents[9003] = m.L.table_from({"kind": "CONSTRUCTION", "owner": pid, "file": "station/rail/modular.con", "x": 30, "y": 0})
+    W.ents[9004] = m.L.table_from({"kind": "CONSTRUCTION", "owner": pid, "file": "station/bus.con", "x": 40, "y": 0, "stuck": True})
+    W.ents[9005] = m.L.table_from({"kind": "BASE_EDGE", "owner": pid, "n0": 1, "n1": 2})
+    W.players[pid].balance = 777
+    W.players[pid].loan = 500
+s.request(A, f"CMDEL {spare} 0")
+s.pump()
+for m, name in ((A, "Ada's"), (B, "Bob's")):
+    W = m.T.W
+    check(f"nobody takes over ({name} machine): vehicle sold, line, building and track removed",
+          W.ents[9001] is None and W.ents[9002] is None and W.ents[9003] is None and W.ents[9005] is None)
+    check(f"... what the game keeps goes to the deleting company ({name} machine)",
+          W.ents[9004] is not None and W.ents[9004].owner == m.cm().cmCompanyPid[1], str(W.ents[9004] and W.ents[9004].owner))
+    check(f"... and the company is gone ({name} machine)", m.cm().cmCo(spare) is None)
+check("... its money and loan are dropped, not handed on", A.holdings(1)[1] == B.holdings(1)[1], f"{A.holdings(1)} {B.holdings(1)}")
+check("... the note says what happened", "everything it had" in str(A.cm().cmLastNote), str(A.cm().cmLastNote))
+check("... players of other companies keep theirs (Bob, its founder, plays company 2)", A.cm().co.members["s:7656100000000002"] == 2)
+
 print("FAILED: " + ", ".join(fails) if fails else "ALL PASS: the registry's rules hold")
 raise SystemExit(1 if fails else 0)
