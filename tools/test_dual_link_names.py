@@ -54,6 +54,11 @@ f, why = M(peers2, "ComradeSilver", ("192.168.0.141", 1234), no_link)
 check("1e. same IP, neither address: refused as ambiguous", f is None and "2 joiners" in (why or ""), why)
 check("1f. a joiner that already has a link is skipped",
       M(peers2, "ComradeSilver", ("192.168.0.141", 1234), lambda a: a == J1)[0] == J2)
+peers3 = {J1: {"name": "bob", "asked": "bob"}, J2: {"name": "bob#2", "asked": "bob"}}
+check("1h. the renamed joiner's hello goes to it, not to the joiner that kept the name",
+      M(peers3, "bob", J2, no_link)[0] == J2)
+check("1i. ...and the first joiner's own hello still finds the first joiner",
+      M(peers3, "bob", J1, no_link)[0] == J1)
 old = {J1: {"name": "bob"}}                       # a peer entry from before 'asked' existed
 check("1g. entries without 'asked' still match by name", M(old, "bob", J1, no_link)[0] == J1)
 

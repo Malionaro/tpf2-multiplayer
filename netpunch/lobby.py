@@ -510,16 +510,19 @@ def _match_link_hello(peers, name, addr, has_link):
         items = list(peers.items())
     except RuntimeError:                       # the host loop changed the roster meanwhile
         return None, "the roster changed -- retrying"
-    for key in ("name", "asked"):
-        cands = [a for a, p in items if isinstance(p, dict) and p.get(key) == name and not has_link(a)]
-        if len(cands) > 1:
-            same = [a for a in cands if isinstance(a, tuple) and tuple(a[:2]) == tuple(addr[:2])] \
-                or [a for a in cands if isinstance(a, tuple) and a[0] == addr[0]]
-            cands = same
-        if len(cands) == 1:
-            return cands[0], None
-        if cands:
-            return None, f"{len(cands)} joiners asked for that name from {addr[0]}"
+    # One pass over the assigned AND the asked names. Assigned first, asked second
+    # used to return a single assigned-name match without looking at the address:
+    # 'bob' and 'bob#2' (asked 'bob') both without a link, a hello 'bob' from
+    # bob#2's address went to bob, and bob's own hello then matched bob#2.
+    cands = [a for a, p in items if isinstance(p, dict) and not has_link(a)
+             and (p.get("name") == name or p.get("asked") == name)]
+    if len(cands) > 1:
+        cands = [a for a in cands if isinstance(a, tuple) and tuple(a[:2]) == tuple(addr[:2])] \
+            or [a for a in cands if isinstance(a, tuple) and a[0] == addr[0]]
+    if len(cands) == 1:
+        return cands[0], None
+    if cands:
+        return None, f"{len(cands)} joiners asked for that name from {addr[0]}"
     return None, "no joiner by that name without a link"
 
 
@@ -4615,8 +4618,21 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
             return
         late = False
         if addr in peers:                                   # rename in place
+            old_name = peers[addr]["name"]
             peers[addr]["name"] = _dedupe(name, all_names(exclude_addr=addr))
             peers[addr]["asked"] = name
+            # The origin letter goes with the player, not the name: letter_for keys
+            # by name, so a rename handed out a NEW letter mid-game -- the
+            # renumbering letter_for exists to prevent (2026-09-26).
+            new_name = peers[addr]["name"]
+            if new_name != old_name and old_name in letters and new_name not in letters:
+                letters[new_name] = letters.pop(old_name)
+                if relay_only:
+                    try:
+                        with open(letters_path, "w", encoding="utf-8") as f:
+                            json.dump(letters, f)
+                    except OSError:
+                        pass
             if profile:
                 peers[addr]["profile"] = profile
             peers[addr]["mesh"] = bool(is_mesh)
@@ -6252,6 +6268,10 @@ def run_client(conn, my_name, io, stop=None, host_gone_after=HOST_GONE_AFTER,
         if t == "welcome":
             receiver.on_manifest(m.get("mods", []), m.get("mods_unknown"))
             assigned[0] = m.get("you", desired[0])
+            # the TCP stream hello must carry the name the host GAVE us: a second
+            # 'bob' renamed 'bob#2' still said 'bob', and the host bound its stream
+            # to the first bob's record (_peer_for_stream matches by name)
+            receiver.my_name = assigned[0]
             host_name[0] = m.get("host")
             is_relay[0] = bool(m.get("relay"))
             if recovery:
@@ -7544,7 +7564,7 @@ def _run_transfer_mods(tag):
     modshare.catalogue=lambda: ("test-catalogue",{("mod_zz","1"),("mod_have","1")})
     real = (modshare.save_mod_list, modshare.find_mod, modshare.installed_mod, modshare.install_target)
     on_disk_real, modshare.on_disk_mod = modshare.on_disk_mod, lambda m, v: src.get(m) if m == "mod_have" else None
-    share_was, SHARE_MODS[0] = SHARE_MODS[0], True          # off by default; this test is the round itself
+    share_was, SHARE_MODS[0] = SHARE_MODS[0], True          # on by default; forced on here since this test is the round itself
     modshare.save_mod_list = lambda p, log=None: [("mod_zz", 1), ("mod_have", 1)]
     modshare.find_mod = lambda m, v: src.get(m)                       # the host has both
     modshare.installed_mod = lambda m, v: src.get(m) if m == "mod_have" else None   # joiners lack mod_zz
@@ -8610,9 +8630,9 @@ def main(argv=None):
                          "host's merged lobby_peers.log (repeatable; e.g. the "
                          "bridge log)")
     ap.add_argument("--share-mods", action="store_true",
-                    help="host: send joiners the mods the shared save needs (off by default)")
+                    help="host: send joiners the mods the shared save needs (the default; kept for old launchers)")
     ap.add_argument("--no-share-mods", action="store_true",
-                    help="host: do not send joiners the mods the shared save needs (the default)")
+                    help="host: do not send joiners the mods the shared save needs")
     ap.add_argument("--no-mesh", action="store_true",
                     help="joiner: do not punch other joiners directly; keep "
                          "every frame on the host relay (the pre-mesh star)")
