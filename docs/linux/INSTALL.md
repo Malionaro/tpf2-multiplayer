@@ -566,3 +566,22 @@ Native dedicated servers now default to descriptor-set recycling when
 `dedicated_render=0`; `dedicated_recycle_sets=0` disables it. Ordinary rendered
 sessions do not use it. See [dev 84058da7](UPSTREAM_dev_84058da7.md) for the
 verified dispatcher correction and live-test limitations.
+
+### Integration through dev f0212c87
+
+[Integration and test record](UPSTREAM_dev_f0212c87.md). Release remains 0.7.0.7.
+The shared multiplayer toolbar button is included with both icon resolutions.
+Native Sandbox town-tool capture and the minimap (including climate colors and
+M shortcut) remain unported; do not place towns with the native Sandbox tool
+in multiplayer sessions. Shared TOWNC replay is present but cross-platform town
+determinism was not tested live.
+
+The native save compressor defaults to four libzstd workers (limited by CPU
+count); `save_threads=0` disables it, or use 1..16 to choose a worker count.
+It falls back to the game's compressor when byte checks or system libzstd support
+fail. The Steam polling hook defaults to a 2 ms interval while busy;
+`steam_poll_ms=0` disables it, and positive values clamp at 100 ms. The existing
+200 ms idle wait is retained. These settings use `tpf2_menu_flags.txt` in the
+native module root, falling back to its data folder when the root file is absent.
+Restart the game after changing these startup flags. Local lab startup was blocked;
+no live saving speedup, polling cost or toolbar appearance is claimed.

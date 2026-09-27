@@ -60,7 +60,7 @@ K.ACTIONS_OFF_ALWAYS = { CONXP = true, CONUP = true, CDEMO = true, SETDATE = tru
                          CMNEW = true, CMSWITCH = true, CMDEL = true, CMPW = true, CMNAME = true, CMOPEN = true }
 K.ACTIONS_OFF_ARMED = { ROADE = true, VBUY = true, VREPL = true, VSELL = true, VDEPOT = true, VLINE = true,
                         VREV = true, VSTOP = true, LUPDATE = true, LDELETE = true, VNAME = true, VCOLOR = true,
-                        STOPX = true, STOPXDEL = true, TERRAINCAP = true, ASSETCAP = true }
+                        STOPX = true, STOPXDEL = true, TERRAINCAP = true, ASSETCAP = true, TOWNC = true }
 CM.actionsOff = false
 CM.actionsHeld = {}   -- LCREATEX lines waiting for this game to catch up
 CM.behindBy = 0
@@ -1283,6 +1283,17 @@ function CM.pollInject()
 					log("VREV: " .. k)
 					CM.scheduleLocal("VREV", { key = k, armed = CM.lastArmed or 0 })
 				end
+
+			elseif o == "TOWNC" and #w >= 9 then
+				-- Sandbox mode's town tool (mp/sandbox.lua). ARMED 1: the slice cancelled
+				-- the placement and every game, this one included, builds the town at the
+				-- stamp. The fields go on as the slice wrote them: pos stays text (float-
+				-- exact), and "name" is the key the codec never turns into a number.
+				local armed = CM.lastArmed or 0
+				log(string.format("TOWNC: town at %s capacities %s/%s/%s%s", tostring(w[2]), tostring(w[3]),
+					tostring(w[4]), tostring(w[5]), armed == 1 and " (strict)" or ""))
+				CM.scheduleLocal("TOWNC", { pos = w[2], c1 = tonumber(w[3]) or -1, c2 = tonumber(w[4]) or -1,
+					c3 = tonumber(w[5]) or -1, n1 = w[6], n2 = w[7], n3 = w[8], name = w[9], armed = armed })
 
 			elseif o == "VDEPOT" and #w >= 3 then
 				local id, sell = tonumber(w[2]), tonumber(w[3]) or 0

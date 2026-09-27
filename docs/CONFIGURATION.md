@@ -65,7 +65,7 @@ setting at its default.
 | `dedicated_pin_batch` | 1 | `0`, `1` | 1: the engine's simulation batch interval is pinned at its nominal 200 ms instead of the engine's own estimate, which on a VPS with CPU steal sits at 300-400 ms while the sim thread is half idle. |
 | `dedicated_fps` | 30 | 5-240 | With `dedicated_render=0`: the headless frame rate the present is paced to. The engine needs only 5 batches a second; every frame beyond is scene prep on the thread that hands the sim its batches. |
 | `dedicated_render` | 0 | `0`, `1` | 0: no command buffer reaches the GPU (fences and semaphores are still signalled), so a software Vulkan (lavapipe) costs nothing and the panel is not drawn; 1: the game renders as usual. |
-| `dedicated_recycle_sets` | 1 | `0`, `1` | Linux, with `dedicated_render=0`: a descriptor pool reset keeps its sets for the next frame instead of freeing them (lavapipe maps and unmaps 4 KiB per set, ~7,000 of each a second on a big world). 0 hands every call to the driver. |
+| `dedicated_recycle_sets` | 1 | `0`, `1` | With `dedicated_render=0` (native Linux, and Windows under Proton): a descriptor pool reset keeps its sets for the next frame instead of freeing them (lavapipe maps and unmaps 4 KiB per set, ~7,000 of each a second on a big world). 0 hands every call to the driver. |
 | `automod` | on | a line starting `automod=0` | Stops the panel adding the Transport Fever 2 Multiplayer mod to the game's default mod list. |
 | `sharedstations` | on | a line starting `sharedstations=0` | Read by the slice DLL, not the menu. Off leaves the line editor's owner check alone, so in companies mode another company's station cannot be put on your line (see [SHARED_INFRA.md](SHARED_INFRA.md)). |
 

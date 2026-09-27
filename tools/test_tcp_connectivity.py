@@ -147,6 +147,49 @@ class TcpConnectivity(unittest.TestCase):
         self.assertEqual(bulk_tcp._read_exact(got["aj"], 12), b"host->joiner")
         self.assertEqual(bulk_tcp._read_exact(got["ah"], 12), b"joiner->host")
 
+    def test_master_pipe_outlives_its_idle_limit_while_bytes_flow_one_way(self):
+        # 2026-09-27: 15 pipe transfers ended at exactly 120 s (PIPE_IDLE) and none
+        # ran longer -- 206, 195 and 529 MB saves among them. A save streams host ->
+        # joiner only; the joiner's silent direction timed out 120 s after its hello
+        # and, as the first direction to end, cut the busy one. Idle means no byte
+        # EITHER way.
+        import masterserver
+        port = masterserver.start_pipe(0, "127.0.0.1")
+        got = {}
+
+        def end(role):
+            got[role] = bulk_tcp.pipe_connect("127.0.0.1", port, "c" * 32, role, wait=5)
+        with patch.object(masterserver, "PIPE_IDLE", 0.6):
+            ts = [threading.Thread(target=end, args=(r,)) for r in ("H", "J")]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join(8)
+            h, j = got["H"], got["J"]
+            self.assertIsNotNone(h)
+            self.assertIsNotNone(j)
+            for s in (h, j):
+                self.addCleanup(s.close)
+            chunk, n = b"x" * 1024, 12
+            received = []
+
+            def pull():
+                j.settimeout(5)
+                try:
+                    received.append(bulk_tcp._read_exact(j, len(chunk) * n))
+                except OSError as e:
+                    received.append(e)
+            reader = threading.Thread(target=pull)
+            reader.start()
+            for _ in range(n):                           # 12 x 0.25 s = 3 s, five idle limits
+                h.sendall(chunk)
+                threading.Event().wait(0.25)
+            reader.join(8)
+            self.assertEqual(received, [chunk * n])
+            # and a pair that goes quiet both ways is still cut
+            j.settimeout(3)
+            self.assertEqual(j.recv(1), b"")
+
     def test_slow_transfer_streams_through_the_master_pipe(self):
         import masterserver
         port = masterserver.start_pipe(0, "127.0.0.1")

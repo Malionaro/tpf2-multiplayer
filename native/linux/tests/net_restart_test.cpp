@@ -108,7 +108,8 @@ int main() {
     send(NEW,world,11,nullptr,0,0xffffffff);  // floor 11: 8 and 9 are gone, 10 is ours
     waitFor([]{return count()==5;});
     assert(lastLine()=="stashed-ten");
-    assert(loggedLines("retains nothing before seq 11 and we waited for 8: 1 stashed packet(s) delivered, 2 went by")==1);
+    // Delivery occurs before AdvanceFloor logs; wait for the receive thread.
+    waitFor([]{return loggedLines("retains nothing before seq 11 and we waited for 8: 1 stashed packet(s) delivered, 2 went by")==1;});
     send(NEW,world,11,"after-skip"); waitFor([]{return count()==6;});
     send(NEW,world,12,"head-",NO_ACK,0,0,2);  // chunk 0 of 2, in order: assembling
     send(NEW,world,14,"-x",NO_ACK,0,1,2);     // chunk 1 of 2 at 14: stashed across a hole at 13

@@ -24,7 +24,7 @@
 #include "panel.h"
 #include "panel_layer.h"
 #include "dedicated_linux.h"
-#include "descriptor_recycle_linux.h"
+#include "descriptor_recycle.h"
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
@@ -59,7 +59,7 @@ static bool g_noWsi = false;
 static VkSwapchainKHR g_nullSc = VK_NULL_HANDLE;
 static uint32_t g_nullCount = 0, g_nullNext = 0;
 static bool g_noRender = false;
-// dedicated_render=0: descriptor sets survive pool resets (descriptor_recycle_linux.h)
+// dedicated_render=0: descriptor sets survive pool resets (native/src/descriptor_recycle.h)
 static dsrecycle::Recycler* g_recycle = nullptr;
 static VkResult MyAllocSets(VkDevice d, const VkDescriptorSetAllocateInfo* i, VkDescriptorSet* s) { return g_recycle->Allocate(d, i, s); }
 static VkResult MyFreeSets(VkDevice d, VkDescriptorPool p, uint32_t n, const VkDescriptorSet* s) { return g_recycle->Free(d, p, n, s); }

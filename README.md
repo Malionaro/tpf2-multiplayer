@@ -428,3 +428,9 @@ cross-platform town-creation determinism. Version remains 0.7.0.7.
 The [dev `02edb897` integration](docs/linux/UPSTREAM_dev_02edb897.md) retains
 upstream's dedicated descriptor-recycler measurements. Runtime behavior and
 version 0.7.0.7 are unchanged; no local performance measurement is claimed.
+
+The [dev `f0212c87` integration](docs/linux/UPSTREAM_dev_f0212c87.md) adds the
+shared multiplayer toolbar, pipe-idle and leader-loss fixes, and imports native
+road-read batching, threaded save compression, terrain page initialization and
+Steam poll throttling. Native town-tool capture and minimap extensions remain
+unported after static RE and blocked lab startup. Release remains 0.7.0.7.

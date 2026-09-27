@@ -52,6 +52,31 @@ function data()
 	-- Native in-game dashboard: scoped classes leave every stock window alone.
 	-- The engine supplies transparency, local background blur and the window shadow.
 	a("Window!mpDashWindow", { backgroundColor = ssu.makeColor(5, 25, 40, 175) })
+
+	-- The toolbar button (lockstep.lua CM.mpButtonInstall) in the game's round
+	-- disk, as game-menu.lua draws LineManagerButton and VehicleManagerButton: a
+	-- mod cannot make its button one of those types, so the class carries the
+	-- same images and colours, and clears ToggleButton's square hover/active fill.
+	a("ToggleButton!mpToolbarDisk", {
+		backgroundImage1 = { fileName = "ui/design/buttons/disk_big_behind.tga" },
+		backgroundImage2 = { fileName = "ui/design/buttons/disk_big_surface.tga" },
+		borderImage = { fileName = "ui/design/buttons/disk_big_contour.tga" },
+		backgroundColor = ssu.makeColor(0, 0, 0, 0),
+		backgroundColor1 = ssu.makeColor(15, 35, 50, 90),
+		backgroundColor2 = ssu.makeColor(15, 35, 50),
+		borderColor = ssu.makeColor(255, 255, 255, 128),
+		padding = { 13, 13, 13, 13 },
+	})
+	a("ToggleButton!mpToolbarDisk:hover", {
+		backgroundColor = ssu.makeColor(0, 0, 0, 0),
+		backgroundColor1 = ssu.makeColor(183, 188, 193, 128),
+		borderColor = ssu.makeColor(255, 255, 255),
+	})
+	a("ToggleButton!mpToolbarDisk:active", {
+		backgroundColor = ssu.makeColor(0, 0, 0, 0),
+		backgroundColor1 = ssu.makeColor(15, 35, 50, 90),
+		backgroundColor2 = ssu.makeColor(110, 122, 132),
+	})
 	a("!mpDashBody", { padding = { 0, 14, 10, 14 }, minSize = { 520, -1 } })
 	a("!mpDashBody > BoxLayout", { innerSpacing = { 0, 6 } })
 	a("!mpDashBody TextView", { fontSize = 13 })

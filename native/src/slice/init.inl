@@ -145,6 +145,7 @@ static DWORD WINAPI Init(LPVOID)
     // every peer from the first step.
     InstallRoadSpace();
     InstallRoadEntries();
+    InstallSteamPoll();
     // Person batches in entity-id order, so a host that keeps its world at a hot
     // join and the joiner that loads its save decide alike ("HOT-JOIN ORDER").
     InstallHotJoinOrder();
