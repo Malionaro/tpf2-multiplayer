@@ -1059,6 +1059,8 @@ FRAG_MAGIC = b"F"           # '{' JSON, 'N' chunk, 'g' game, 'r' relay envelope,
 FRAG_HEADER = struct.Struct("!III")
 FRAG_DATA = 1300            # payload bytes per fragment: 1300 + 13 + seal 24 + NP1 5
                             # = 1342, under the 1400 B VPN MTU (see CHUNK_DATA)
+FRAG_MAX_COUNT = 8192       # fragments one message may have (~10 MB): a peer claiming 2^32 kept one
+                            # entry growing for as long as it sent (each piece refreshed its TTL)
 FRAG_TTL = 15.0             # a message none of whose fragments arrived for this long is abandoned
 FRAG_PENDING_PER_ADDR = 64  # partial messages kept per sender: a garbage guard, not a
                             # message limit (a sender's fragments go out back to back,
@@ -1091,7 +1093,7 @@ class _Reassembler:
         if len(frame) < 1 + FRAG_HEADER.size:
             return None
         fid, index, count = FRAG_HEADER.unpack_from(frame, 1)
-        if count == 0 or index >= count:
+        if count == 0 or index >= count or count > FRAG_MAX_COUNT:
             return None
         key = (addr, fid)
         entry = self.pending.get(key)
