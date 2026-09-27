@@ -514,7 +514,8 @@ the launchers on the version page. Existing native feature limits remain.
 ## Fantasia generator buffer reuse
 
 The native Big Maps plugin now applies buffer reuse automatically when a
-Fantasia map has area above 32768² square metres. Enable the normal Fantasia
+Fantasia map has area above 8193² heightmap samples (128 x 128 tiles,
+32 x 32 km). Generator dimensions are `64 * tiles + 1` samples. Enable the normal Fantasia
 Workshop mod; no additional low-memory mod is needed. `generator_memory=1`
 is the default in the `[tpf2_bigmap]` configuration section; set it to `0`
 and restart to disable it. Fantasia's files remain unchanged.
@@ -523,5 +524,5 @@ If you installed the earlier `tpf2_bigmap_fantasia_low_memory_1` stand-in,
 disable it in the mod list before using the normal Fantasia generator. The
 old installer and stand-in files were retired upstream. Check the plugin log
 for `generator memory: ... served with buffer reuse`. See
-[integration evidence](UPSTREAM_dev_6584fd03.md); native rendered terrain and
+[integration evidence](UPSTREAM_dev_15ba4df5.md); native rendered terrain and
 peak memory still need live validation.

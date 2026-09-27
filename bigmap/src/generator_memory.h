@@ -17,7 +17,7 @@
 // and the pass itself (embedded from bigmap_memory.lua) plus that helper are
 // appended after the last line, so every line number in the generator stays
 // the same. The helper prints the map size, layer and name counts to the game
-// log and runs the pass when the map area is over 32768^2 m^2. Maps up to
+// log and runs the pass when the map is over 8193^2 heightmap samples. Maps up to
 // 32 x 32 km (128 x 128 tiles) run the generator exactly as shipped. A file
 // whose anchor is missing or repeated is served unchanged. The generator on
 // disk is never written; switching the plugin off (generator_memory=0) or

@@ -3,7 +3,7 @@
 Requires out/tpf2_bigmap.dll (build.bat), lupa.lua52 and the Fantasia workshop
 mod (2916150031), which is only read. For each Fantasia generator the DLL's
 patched text is run like the game runs it and compared with the original:
-identical pipeline up to 32 x 32 km, and at 40 km the symbolic replay of
+identical pipeline at 128 x 128 tiles, and at 130, 160 and 192 tiles the symbolic replay of
 test_generation_memory.verify with the buffer count down to the lower bound.
 On Linux pass --native-library (libtest_generator_text.so), --fantasia-res
 and --game-res; native CTest covers stream routing and installation guards.
@@ -50,13 +50,15 @@ def runtime(lines):
     return L
 
 
-def generate(text, km):
+def generate(text, tiles):
+    # The game passes mapSizeX/Y in heightmap samples, 64 * tiles + 1 (MEASURED
+    # 12289 for a 192 x 192 tile map), not in metres.
     lines = []
     L = runtime(lines)
     L.execute(text.decode('utf-8'))
     info = L.globals().data()
     p = L.table_from({row['key']: row['defaultIndex'] for _, row in info.params.items()})
-    p.water, p.mapSizeX, p.mapSizeY = 2, km * 1024, km * 1024
+    p.water, p.mapSizeX, p.mapSizeY = 2, tiles * 64 + 1, tiles * 64 + 1
     p.bounds = L.table_from(dict(min=L.table_from(dict(x=-p.mapSizeX / 2, y=-p.mapSizeY / 2)),
                                  max=L.table_from(dict(x=p.mapSizeX / 2, y=p.mapSizeY / 2))))
     L.globals().math.randomseed(35924)
@@ -117,19 +119,34 @@ def check_diagnostics(dll):
     L.execute(patch(dll, src).decode('utf-8'))
     L.execute("""
         r = {layers={{type="FUTURE", params={type="NEW", output="a"}}}}
-        assert(run(r, {mapSizeX=40960, mapSizeY=40960}) == r)
+        assert(run(r, {mapSizeX=12289, mapSizeY=12289}) == r)
         assert(r.layers[1].params.output == "a")
     """)
     assert lines == [
-        '[tpf2_bigmap] generator memory: 40960 x 40960 m, 1 layers over 1 buffer names',
+        '[tpf2_bigmap] generator memory: 12289 x 12289 samples (192 x 192 tiles), 1 layers over 1 buffer names',
         '[tpf2_bigmap] terrain memory: layer 1 of 1 (FUTURE NEW) is not a known op; pipeline left unchanged'], lines
     lines.clear()
-    L.execute("assert(run(r, {mapSizeX=32768, mapSizeY=32768}) == r)")
-    assert lines == ['[tpf2_bigmap] generator memory: 32768 x 32768 m, 1 layers over 1 buffer names (32 x 32 km or less: unchanged)'], lines
+    L.execute("assert(run(r, {mapSizeX=8193, mapSizeY=8193}) == r)")
+    assert lines == ['[tpf2_bigmap] generator memory: 8193 x 8193 samples (128 x 128 tiles), 1 layers over 1 buffer names (32 x 32 km or less: unchanged)'], lines
     lines.clear()
     L.execute("assert(run(r, nil) == r)")
-    assert lines == ['[tpf2_bigmap] generator memory: 0 x 0 m, 1 layers over 1 buffer names (32 x 32 km or less: unchanged)'], lines
-    print('PASS: embedded diagnostics, unknown-op refusal, boundary and absent dimensions')
+    assert lines == ['[tpf2_bigmap] generator memory: 0 x 0 samples (-0 x -0 tiles), 1 layers over 1 buffer names (32 x 32 km or less: unchanged)'], lines
+    # Spy on the optimizer to check the exact area gate independently of its
+    # conservative refusal of the unknown operation above, including rectangles.
+    L.execute("""
+        local calls = 0
+        _tpf2_bigmap_memory.Optimize = function(result)
+            calls = calls + 1
+            return result
+        end
+        for _, dims in ipairs({{8192,8193,0}, {8193,8193,0}, {8193,8194,1},
+                               {8194,8193,1}, {4096,16384,0}, {4097,16385,1}}) do
+            local before = calls
+            assert(run(r, {mapSizeX=dims[1], mapSizeY=dims[2]}) == r)
+            assert(calls == before + dims[3])
+        end
+    """)
+    print('PASS: embedded diagnostics, unknown-op refusal, sample-area boundary, rectangles and absent dimensions')
 
 
 def check_generators(dll):
@@ -143,17 +160,21 @@ def check_generators(dll):
         assert out is not None, name
         a, b = src.splitlines(), out.splitlines()
         assert len(b) > len(a) and sum(x != y for x, y in zip(a, b)) == 1, name
-        before, _ = generate(src, 40)
-        after, lines = generate(out, 40)
-        x, y = t.verify(before, after)
-        n = len(t.indices(before['layers']))
-        assert lines == [f'[tpf2_bigmap] generator memory: 40960 x 40960 m, {n} layers over {x} buffer names',
-                         f'[tpf2_bigmap] terrain memory: {x} -> {y} named buffers'], lines
-        assert y == t.lower_bound(before) and y <= 12, (y, t.lower_bound(before))
-        small, _ = generate(src, 32)
-        same, lines = generate(out, 32)
+        report = []
+        for tiles in (130, 160, 192):
+            before, _ = generate(src, tiles)
+            after, lines = generate(out, tiles)
+            x, y = t.verify(before, after)
+            n, s = len(t.indices(before['layers'])), tiles * 64 + 1
+            assert lines == [f'[tpf2_bigmap] generator memory: {s} x {s} samples ({tiles} x {tiles} tiles), '
+                             f'{n} layers over {x} buffer names',
+                             f'[tpf2_bigmap] terrain memory: {x} -> {y} named buffers'], lines
+            assert y == t.lower_bound(before) and y <= 12, (y, t.lower_bound(before))
+            report.append(f'{tiles}: {x} -> {y}')
+        small, _ = generate(src, 128)
+        same, lines = generate(out, 128)
         assert same == small and len(lines) == 1 and lines[0].endswith('(32 x 32 km or less: unchanged)'), (name, lines)
-        print(f'{name:<42} 40 km: {x} -> {y} named buffers; 32 km: unchanged')
+        print(f'{name:<42} tiles {", ".join(report)} named buffers; 128: unchanged')
     return True
 
 

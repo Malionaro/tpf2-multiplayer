@@ -502,3 +502,14 @@ Native Linux logs dimensions, layer and buffer-name counts before optimization,
 and the shared optimizer reports unknown operations and pinned-name refusals.
 The existing fopen route, byte guards and ABI are unchanged; no new engine
 site is needed. See the [integration and test record](../../../docs/linux/UPSTREAM_dev_46ca48ef.md).
+
+## Fantasia sample units — dev 15ba4df5
+
+The shared helper now gates optimization on area above 8193² heightmap
+samples, with dimensions `64 * tiles + 1`, and logs samples and tiles.
+This corrects the metre interpretation in the earlier Fantasia records above:
+the old 32/40 km symbolic fixtures supplied the wrong generator units.
+All three climates are unchanged at 128 tiles and reduce to 10 names at
+130, 160 and 192 tiles in symbolic replay. The guarded fopen route and ABI
+are unchanged. No new live terrain or peak-memory result is claimed.
+See [integration and tests](../../../docs/linux/UPSTREAM_dev_15ba4df5.md).

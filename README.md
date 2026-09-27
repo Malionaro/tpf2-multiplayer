@@ -367,3 +367,9 @@ Version remains 0.7.0.7.
 The [dev `46ca48ef` integration](docs/linux/UPSTREAM_dev_46ca48ef.md) adds
 Fantasia generator size/layer/buffer diagnostics and optimizer refusal reasons
 to both native Linux and Windows. Version remains 0.7.0.7.
+
+The [dev `15ba4df5` integration](docs/linux/UPSTREAM_dev_15ba4df5.md) fixes
+Fantasia buffer reuse to measure generator dimensions in heightmap samples.
+128 x 128 tiles remain unchanged; larger sample areas use the optimizer.
+Native build and symbolic pipeline tests pass; live memory savings remain
+unmeasured. Version remains 0.7.0.7.
