@@ -41,6 +41,9 @@ static const size_t    SLOT_GET_DEVICE_QUEUE     = 0x7a0;
 static const size_t    SLOT_QUEUE_PRESENT        = 0xad0;
 // 0x351814a stores the lookup of vkQueueSubmit here (build 35924).
 static const size_t    SLOT_QUEUE_SUBMIT         = 0xae0;
+// 0x3518202 stores the lookup of vkResetDescriptorPool (named at 0x35181e1) here:
+// past QueueSubmit, so outside FindDeviceSlot's verified range.
+static const size_t    SLOT_RESET_DESCRIPTOR_POOL = 0xb28;
 
 static Tpf2mpLogFn g_log = nullptr;
 static uintptr_t   g_base = 0;
@@ -460,7 +463,6 @@ static void** FindDeviceSlot(void** slots, PFN_vkVoidFunction value, size_t last
 // Build 35924 resolves vkResetDescriptorPool after vkQueueSubmit. Verify the
 // lookup/store before allowing the recycler to scan the longer dispatcher span.
 static const uintptr_t RVA_RESET_POOL_LOOKUP = 0x35181e1;
-static const size_t SLOT_RESET_DESCRIPTOR_POOL = 0xb28;
 static const uint8_t RESET_POOL_LOOKUP[] = {
     0x48,0x8d,0x35,0x83,0xb1,0xa3,0x00, // lea rsi, "vkResetDescriptorPool"
     0x4c,0x89,0xe7,                     // mov rdi,r12 (VkDevice)
@@ -470,10 +472,13 @@ static const uint8_t RESET_POOL_LOOKUP[] = {
     0x4c,0x89,0xe7,
     0x48,0x89,0x83,0x28,0x0b,0x00,0x00  // mov [rbx+0xb28],rax
 };
-static void** FindRecycleSlot(void** slots, PFN_vkVoidFunction value, const uint8_t* lookup)
+static void** FindRecycleSlot(void** slots, PFN_vkVoidFunction value, const uint8_t* lookup, bool resetPool = false)
 {
     if (memcmp(lookup, RESET_POOL_LOOKUP, sizeof(RESET_POOL_LOOKUP)) != 0) return nullptr;
-    return FindDeviceSlot(slots, value, SLOT_RESET_DESCRIPTOR_POOL);
+    void** found = FindDeviceSlot(slots, value, SLOT_RESET_DESCRIPTOR_POOL);
+    // A unique pointer elsewhere does not prove the named reset slot matches gdpa.
+    if (resetPool && found != &slots[SLOT_RESET_DESCRIPTOR_POOL / sizeof(void*)]) return nullptr;
+    return found;
 }
 
 static void MyGetDeviceQueue(VkDevice dev, uint32_t fam, uint32_t idx, VkQueue* pq)
@@ -570,7 +575,8 @@ static void InitDeviceDetour(void* dispatcher, VkDevice dev)
                 for (int i = 0; i < 5; ++i) {
                     fns[i] = gdpa(dev, names[i]);
                     slots[i] = FindRecycleSlot(slot, fns[i],
-                        reinterpret_cast<const uint8_t*>(g_base + RVA_RESET_POOL_LOOKUP));
+                        reinterpret_cast<const uint8_t*>(g_base + RVA_RESET_POOL_LOOKUP), i == 2);
+                    if (!slots[i]) g_log("[dedicated] descriptor set recycling: dispatcher guard failed or no unique dispatcher slot for %s\n", names[i]);
                     all = all && slots[i];
                 }
                 if (all) {
@@ -585,7 +591,7 @@ static void InitDeviceDetour(void* dispatcher, VkDevice dev)
                         for (int i = 0; i < 5; ++i) *slots[i] = mine[i];
                         g_log("[dedicated] descriptor sets kept across pool resets (dedicated_recycle_sets=0 turns it off)\n");
                     }
-                } else g_log("[dedicated] descriptor set recycling unavailable: dispatcher guard failed or slots are not unique\n");
+                } else g_log("[dedicated] descriptor set recycling unavailable (descriptor calls untouched)\n");
             }
         } else g_log("[dedicated] render suppression unavailable: Vulkan dispatcher slots are not unique\n");
     }

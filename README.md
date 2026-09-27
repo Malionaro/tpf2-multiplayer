@@ -414,3 +414,8 @@ measurement is claimed.
 The [dev `84058da7` integration](docs/linux/UPSTREAM_dev_84058da7.md) adds native
 dedicated descriptor recycling and corrects its verified Vulkan dispatcher
 search boundary. Live activation remains unverified because lab startup failed.
+
+The [dev `52a1630a` integration](docs/linux/UPSTREAM_dev_52a1630a.md) validates
+native dedicated descriptor recycling's reset slot at dispatcher +0xb28 and
+names failed lookups while retaining the Linux byte guard. Lab startup was
+blocked before game execution; runtime activation remains unvalidated.
