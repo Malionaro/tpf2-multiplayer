@@ -24,11 +24,13 @@
 #include "panel.h"
 #include "panel_layer.h"
 #include "dedicated_linux.h"
+#include "descriptor_recycle_linux.h"
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <cerrno>
+#include <new>
 #include <vector>
 
 static const uintptr_t RVA_INIT_DEVICE_DISPATCH = 0x35167d0;   // vk::DispatchLoaderDynamic::init(vk::Device)
@@ -54,6 +56,13 @@ static bool g_noWsi = false;
 static VkSwapchainKHR g_nullSc = VK_NULL_HANDLE;
 static uint32_t g_nullCount = 0, g_nullNext = 0;
 static bool g_noRender = false;
+// dedicated_render=0: descriptor sets survive pool resets (descriptor_recycle_linux.h)
+static dsrecycle::Recycler* g_recycle = nullptr;
+static VkResult MyAllocSets(VkDevice d, const VkDescriptorSetAllocateInfo* i, VkDescriptorSet* s) { return g_recycle->Allocate(d, i, s); }
+static VkResult MyFreeSets(VkDevice d, VkDescriptorPool p, uint32_t n, const VkDescriptorSet* s) { return g_recycle->Free(d, p, n, s); }
+static VkResult MyResetPool(VkDevice d, VkDescriptorPool p, VkDescriptorPoolResetFlags f) { return g_recycle->Reset(d, p, f); }
+static void MyDestroyPool(VkDevice d, VkDescriptorPool p, const VkAllocationCallbacks* a) { g_recycle->DestroyPool(d, p, a); }
+static void MyDestroyLayout(VkDevice d, VkDescriptorSetLayout l, const VkAllocationCallbacks* a) { g_recycle->DestroyLayout(d, l, a); }
 static VkDevice   g_dev = VK_NULL_HANDLE;
 static VkFormat   g_scFormat = VK_FORMAT_UNDEFINED;
 static VkExtent2D g_scExtent = { 0, 0 };
@@ -387,7 +396,12 @@ static VkResult MyPresent(VkQueue q, const VkPresentInfoKHR* pi)
         static uint64_t logged = 0, next = 0;
         if (now - logged >= 5000000000ULL) {
             logged = now;
-            g_log("[dedicated] present heartbeat frames=%llu render=%d\n", (unsigned long long)n, !g_noRender);
+            if (g_recycle) {
+                const auto st = g_recycle->Snapshot();
+                g_log("[dedicated] present heartbeat frames=%llu render=%d sets reused=%llu allocated=%llu real_resets=%llu\n",
+                      (unsigned long long)n, !g_noRender, (unsigned long long)st.reused,
+                      (unsigned long long)st.allocated, (unsigned long long)st.realResets);
+            } else g_log("[dedicated] present heartbeat frames=%llu render=%d\n", (unsigned long long)n, !g_noRender);
         }
         const uint64_t period = 1000000000ULL / unsigned(dedicated::Get().fps);
         if (!next || now > next + period * 4) next = now;
@@ -429,18 +443,37 @@ static VkResult MyQueryResults(VkDevice, VkQueryPool, uint32_t, uint32_t,
     return VK_SUCCESS;
 }
 
-static void** FindDeviceSlot(void** slots, PFN_vkVoidFunction value)
+static void** FindDeviceSlot(void** slots, PFN_vkVoidFunction value, size_t last = SLOT_QUEUE_SUBMIT)
 {
     if (!value) return nullptr;
     void** found = nullptr;
-    // The verified QueueSubmit store bounds the range. Resolve pointers and
-    // require uniqueness before changing any slot.
-    for (size_t i = 0; i <= SLOT_QUEUE_SUBMIT / sizeof(void*); ++i) {
+    // Callers supply a verified store as the search boundary (QueueSubmit by
+    // default). Require uniqueness before changing any slot.
+    for (size_t i = 0; i <= last / sizeof(void*); ++i) {
         if (slots[i] != reinterpret_cast<void*>(value)) continue;
         if (found) return nullptr;
         found = &slots[i];
     }
     return found;
+}
+
+// Build 35924 resolves vkResetDescriptorPool after vkQueueSubmit. Verify the
+// lookup/store before allowing the recycler to scan the longer dispatcher span.
+static const uintptr_t RVA_RESET_POOL_LOOKUP = 0x35181e1;
+static const size_t SLOT_RESET_DESCRIPTOR_POOL = 0xb28;
+static const uint8_t RESET_POOL_LOOKUP[] = {
+    0x48,0x8d,0x35,0x83,0xb1,0xa3,0x00, // lea rsi, "vkResetDescriptorPool"
+    0x4c,0x89,0xe7,                     // mov rdi,r12 (VkDevice)
+    0x48,0x89,0x83,0x20,0x0b,0x00,0x00, // store previous lookup
+    0xff,0x93,0x98,0x07,0x00,0x00,      // call [rbx+0x798] (gdpa)
+    0x48,0x8d,0x35,0x82,0xb1,0xa3,0x00,
+    0x4c,0x89,0xe7,
+    0x48,0x89,0x83,0x28,0x0b,0x00,0x00  // mov [rbx+0xb28],rax
+};
+static void** FindRecycleSlot(void** slots, PFN_vkVoidFunction value, const uint8_t* lookup)
+{
+    if (memcmp(lookup, RESET_POOL_LOOKUP, sizeof(RESET_POOL_LOOKUP)) != 0) return nullptr;
+    return FindDeviceSlot(slots, value, SLOT_RESET_DESCRIPTOR_POOL);
 }
 
 static void MyGetDeviceQueue(VkDevice dev, uint32_t fam, uint32_t idx, VkQueue* pq)
@@ -528,6 +561,32 @@ static void InitDeviceDetour(void* dispatcher, VkDevice dev)
                 }
             }
             g_log("[dedicated] render submissions and query waits disabled; Vulkan synchronization preserved\n");
+            if (dedicated::Get().recycleSets && !g_recycle) {
+                const char* names[5] = { "vkAllocateDescriptorSets", "vkFreeDescriptorSets", "vkResetDescriptorPool",
+                                         "vkDestroyDescriptorPool", "vkDestroyDescriptorSetLayout" };
+                void* mine[5] = { (void*)&MyAllocSets, (void*)&MyFreeSets, (void*)&MyResetPool,
+                                  (void*)&MyDestroyPool, (void*)&MyDestroyLayout };
+                PFN_vkVoidFunction fns[5]; void** slots[5]; bool all = true;
+                for (int i = 0; i < 5; ++i) {
+                    fns[i] = gdpa(dev, names[i]);
+                    slots[i] = FindRecycleSlot(slot, fns[i],
+                        reinterpret_cast<const uint8_t*>(g_base + RVA_RESET_POOL_LOOKUP));
+                    all = all && slots[i];
+                }
+                if (all) {
+                    dsrecycle::Real real;
+                    real.alloc = reinterpret_cast<PFN_vkAllocateDescriptorSets>(fns[0]);
+                    real.free = reinterpret_cast<PFN_vkFreeDescriptorSets>(fns[1]);
+                    real.reset = reinterpret_cast<PFN_vkResetDescriptorPool>(fns[2]);
+                    real.destroyPool = reinterpret_cast<PFN_vkDestroyDescriptorPool>(fns[3]);
+                    real.destroyLayout = reinterpret_cast<PFN_vkDestroyDescriptorSetLayout>(fns[4]);
+                    g_recycle = new (std::nothrow) dsrecycle::Recycler(real, 600);   // lives as long as the process
+                    if (g_recycle) {
+                        for (int i = 0; i < 5; ++i) *slots[i] = mine[i];
+                        g_log("[dedicated] descriptor sets kept across pool resets (dedicated_recycle_sets=0 turns it off)\n");
+                    }
+                } else g_log("[dedicated] descriptor set recycling unavailable: dispatcher guard failed or slots are not unique\n");
+            }
         } else g_log("[dedicated] render suppression unavailable: Vulkan dispatcher slots are not unique\n");
     }
     g_log("[overlay] device %p: present, swapchain creation and queue lookup routed through the panel\n", (void*)dev);

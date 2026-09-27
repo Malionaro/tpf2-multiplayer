@@ -561,3 +561,8 @@ The [dev `ea15a156` integration](UPSTREAM_dev_ea15a156.md) batches native guarde
 reads and avoids scanning whole-world vectors for a single road edge. Name
 slot pairs are copied in one guarded read. Version remains 0.7.0.7; local
 validation uses memory fixtures and ELF checks, with no in-game timing claim.
+
+Native dedicated servers now default to descriptor-set recycling when
+`dedicated_render=0`; `dedicated_recycle_sets=0` disables it. Ordinary rendered
+sessions do not use it. See [dev 84058da7](UPSTREAM_dev_84058da7.md) for the
+verified dispatcher correction and live-test limitations.

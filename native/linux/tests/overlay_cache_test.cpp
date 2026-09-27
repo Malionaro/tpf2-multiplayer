@@ -22,6 +22,25 @@ bool Hover(int* x, int* y, int* w, int* h, bool* pressed) {
 }
 }
 int main() {
+    {
+        // The reset entry lies beyond the old QueueSubmit search boundary.
+        void* slots[SLOT_RESET_DESCRIPTOR_POOL / sizeof(void*) + 1]{};
+        const auto fn = reinterpret_cast<PFN_vkVoidFunction>(&MyResetPool);
+        slots[SLOT_RESET_DESCRIPTOR_POOL / sizeof(void*)] = reinterpret_cast<void*>(fn);
+        assert(!FindDeviceSlot(slots, fn));
+        assert(FindRecycleSlot(slots, fn, RESET_POOL_LOOKUP) == &slots[SLOT_RESET_DESCRIPTOR_POOL / sizeof(void*)]);
+        assert(!FindRecycleSlot(slots, nullptr, RESET_POOL_LOOKUP));
+        slots[1] = reinterpret_cast<void*>(fn);
+        assert(!FindRecycleSlot(slots, fn, RESET_POOL_LOOKUP));
+        slots[1] = nullptr;
+        uint8_t changed[sizeof(RESET_POOL_LOOKUP)];
+        for (size_t i = 0; i < sizeof(changed); ++i) {
+            memcpy(changed, RESET_POOL_LOOKUP, sizeof(changed));
+            changed[i] ^= 1;
+            assert(!FindRecycleSlot(slots, fn, changed));
+        }
+
+    }
     VkSemaphore wait = (VkSemaphore)11, signal = (VkSemaphore)12;
     VkPipelineStageFlags stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     VkCommandBuffer command = (VkCommandBuffer)13;

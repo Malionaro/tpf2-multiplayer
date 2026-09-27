@@ -410,3 +410,7 @@ The [dev `491716c3` integration](docs/linux/UPSTREAM_dev_491716c3.md) retains
 upstream's dedicated-server measurements for the road-entry guarded-read fix.
 Runtime behavior and version 0.7.0.7 are unchanged; no local performance
 measurement is claimed.
+
+The [dev `84058da7` integration](docs/linux/UPSTREAM_dev_84058da7.md) adds native
+dedicated descriptor recycling and corrects its verified Vulkan dispatcher
+search boundary. Live activation remains unverified because lab startup failed.
