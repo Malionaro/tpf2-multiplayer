@@ -1395,6 +1395,40 @@ function CM.dedicatedResumeSpeed(found)
 	return math.floor(v + 0.5)
 end
 
+-- THE LEADER LEFT (2026-09-27, a player's report: "if the host leaves the game the
+-- peers never find out and they get stuck on the slowest speed"). A joiner paces
+-- against the leader's heartbeat. When it stops, the leader's last clock stands
+-- still while ours runs on, so within a few ticks we read "ahead" and CM.pidPace
+-- slows us toward a quarter of the session speed (tools/pacing_sim.py
+-- leader_leaves_two: 1x of a 4x session). Then nobody is fresh, paceTick returned
+-- before the controller or the ALONE AGAIN clear below, and the slowdown stayed for
+-- the rest of the game -- with the roster still saying two when the host's lobby
+-- outlives its game, nothing else noticed either. With three or more a joiner
+-- still hears another and recovered; with two it never did.
+-- A frozen leader (an autosave, ten seconds and more on a big map) must still be
+-- waited out at the slow speed, or the joiner races ahead of it. So only a leader
+-- silent for K.LEADER_GONE_TICKS gives the speed back: the session speed, the
+-- controller's state dropped, once. A leader heard again resumes pacing as usual.
+K.LEADER_GONE_TICKS = 150   -- ~28 s at 1x (VOTE_PRESENT: a player gone ~30 s stops counting)
+function CM.paceLeaderSilent()
+	if CM.isLeader() then return end
+	CM.leaderSilentSince = CM.leaderSilentSince or CM.ticks
+	if (CM.ticks - CM.leaderSilentSince) < K.LEADER_GONE_TICKS then return end
+	local ours = CM.pidHold ~= nil or (CM.ditherCur ~= nil and CM.ditherCur ~= "")
+	if not ours then return end
+	local eff = CM.effSpeed
+	CM.pidHold, CM.pidErr, CM.pidI, CM.pidLastE, CM.pidEff = nil, nil, 0, nil, nil
+	CM.pidFar, CM.pidRecover, CM.pidBehindSince, CM.pidAheadSince, CM.paceInfo = nil, nil, nil, nil, nil
+	if eff and eff > 0 then
+		CM.setSpeed(eff, string.format("the leader has not been heard for %d ticks -- pacing stops, back to the session speed %g",
+			CM.ticks - CM.leaderSilentSince, eff))
+	else
+		CM.setDither(0)
+		log(string.format("PACE: the leader has not been heard for %d ticks -- pacing stops, the fractional speed is cleared",
+			CM.ticks - CM.leaderSilentSince))
+	end
+end
+
 function CM.paceTick(now)
 	-- the stamp our world starts from: the save's own (savedAt, written by save()),
 	-- else the first clock we read -- what the load gate asks the history after
@@ -1414,7 +1448,11 @@ function CM.paceTick(now)
 	-- pause_during_catchup).
 	-- ...and while the governor still holds the speed down after the last peer
 	-- left, so it can climb back to the votes (the controller is what raises it).
-	if slowT == nil and not (CM.isLeader() and (CM.livePeers() > 0 or (CM.govFactor or 1) < 1)) then return end
+	if slowT == nil and not (CM.isLeader() and (CM.livePeers() > 0 or (CM.govFactor or 1) < 1)) then
+		CM.paceLeaderSilent()
+		return
+	end
+	CM.leaderSilentSince = nil
 	-- ALONE AGAIN (2026-09-17): once the last other player is gone (roster 1, no
 	-- peer heard) the controller has nothing to pace against and must not keep a
 	-- governed or fractional speed on the player's lever: clear the fraction
