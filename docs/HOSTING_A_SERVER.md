@@ -104,13 +104,17 @@ interactive step.
 
 ### 1. Prepare the machine
 
-As root, from a copy of this repository:
+Every release from 0.7.0.7 on comes with the server scripts as one download,
+`TpF2Multiplayer-Server-Linux.tar.gz`. As root:
 
 ```sh
-git clone https://github.com/silver2127/tpf2-multiplayer.git
-cd tpf2-multiplayer
-sh tools/server/setup_vps.sh
+curl -fLO https://github.com/silver2127/tpf2-multiplayer/releases/latest/download/TpF2Multiplayer-Server-Linux.tar.gz
+tar xzf TpF2Multiplayer-Server-Linux.tar.gz
+sh tpf2mp-server/setup_vps.sh
 ```
+
+(`tpf2mp-server/VERSION` says which release the scripts came with. A checkout of this
+repository works too: `sh tools/server/setup_vps.sh`.)
 
 It installs the Steam client, Xvfb and the libraries they need, creates a `tpf2server` user,
 installs the systemd units (`tpf2mp-xvfb`, `tpf2mp-steam`, `tpf2mp-game`) and the `tpf2server`
@@ -241,7 +245,9 @@ Every release must match between server and players.
   kept.
 - **Linux:** `tpf2server stop`, `tpf2server install`, `tpf2server configure`, `tpf2server start`.
   To pin a particular release rather than the latest, set `MOD_RELEASE` (for example `0.7.0.6`) in
-  `server.env`.
+  `server.env`. To update the server scripts too, download and unpack the new
+  `TpF2Multiplayer-Server-Linux.tar.gz` and run `sh tpf2mp-server/setup_vps.sh` again: it keeps
+  your `server.env` and the Steam login.
 
 ## Changing the world
 

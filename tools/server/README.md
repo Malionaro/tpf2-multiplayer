@@ -14,6 +14,7 @@ project's VPS (76.13.109.115), which also runs the relay and the master server.
 | `game_watchdog.sh` | the `tpf2mp-game` unit: asks Steam to launch the game and again whenever it is gone |
 | `tpf2server` | `status`, `install` (the mod, via the release's `install_proton.sh`), `configure` (flags + a headless `settings.lua` from `server.env`), `start/stop/restart`, `logs`, `code`, `say` |
 | `server.env.example` | the settings |
+| `build_package.py` | the release asset TpF2Multiplayer-Server-Linux.tar.gz: these files and the guide, unpacked to `tpf2mp-server/` (the Build MSI workflow runs it) |
 
 ## Runbook
 
