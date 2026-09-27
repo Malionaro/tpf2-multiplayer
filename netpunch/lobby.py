@@ -2000,7 +2000,13 @@ class _HostSaveTransfer:
             if now - p.get("verify_said", 0.0) >= 10.0:
                 p["verify_said"] = now
                 self.log(f"[host] {p['name']} has the whole {self.kind}; verifying/unpacking, {mark if mark is not None else '?'} B so far")
-        elif base < p["base"]:
+        elif base < p["base"] and base == 0:
+            # Only a base of 0 is a restart: the receiver never moves its base
+            # back anywhere else. A smaller base above 0 is an older fack that
+            # arrived late (a TCP copy landing after a newer UDP one); treating it
+            # as a restart re-streamed up to a whole window and reset the Steam
+            # window to its start. It is ignored.
+            #
             # REWIND: the receiver restarted from scratch (hash mismatch ->
             # whole-file re-request). Without this the host would filter every
             # re-reported hole as "below base" and never resend -- the peer
@@ -4736,6 +4742,16 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
         return n
 
     def handle_data(addr, payload):
+        # One malformed message must not end the lobby: the serve loop only has
+        # try/finally around it, so an exception here (a peer's "name": 5, "lines": 5,
+        # a fack "base": "x", a relay fbegin "total_bytes": -1) closed the lobby for
+        # everyone. run_client guards handle_msg the same way.
+        try:
+            _handle_data(addr, payload)
+        except Exception as e:
+            log(f"[host] message from {addr[0]}:{addr[1]} dropped: {e!r}")
+
+    def _handle_data(addr, payload):
         if payload[:1] == MESH_RELAY_MAGIC:
             # A relay envelope: for us -> deliver the inner frame; for another
             # joiner -> forward verbatim (the host is the default relay).
