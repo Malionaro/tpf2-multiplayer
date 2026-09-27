@@ -146,6 +146,7 @@ static DWORD WINAPI Init(LPVOID)
     InstallRoadSpace();
     InstallRoadEntries();
     InstallSteamPoll();
+    InstallSaveZstd();
     // Person batches in entity-id order, so a host that keeps its world at a hot
     // join and the joiner that loads its save decide alike ("HOT-JOIN ORDER").
     InstallHotJoinOrder();
@@ -183,6 +184,7 @@ static DWORD WINAPI Init(LPVOID)
 
     for (;;) {
         Sleep(15000);
+        SaveZstdLogAlive();
         Log("[slice] alive: captured=%ld cancelled=%ld addHits=%ld\n",
             g_captured, g_suppressed, g_addSeen);
         if (g_trainOrderOn)
