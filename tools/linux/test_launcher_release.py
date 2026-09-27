@@ -74,7 +74,7 @@ class LauncherReleaseTest(unittest.TestCase):
         self.args.publish = True
         self.run_release()
         self.assertEqual(self.writes[-1], ("PATCH", f"/repos/{publisher.REPO}/releases/42",
-                         {"body": {"draft": False, "make_latest": "false"}}))
+                         {"body": {"draft": False, "make_latest": "false", "tag_name": "launcher-v1.2.3"}}))
 
     def test_launcher_update_leaves_existing_mod_release_intact(self):
         self.existing = [dict(tag_name='v0.7.0.5', draft=False, id=7)]
@@ -209,7 +209,8 @@ class VersionReleaseTest(unittest.TestCase):
         published = [(url, kw['body']) for method, url, kw in self.writes
                      if method == 'PATCH' and 'draft' in kw['body']]
         self.assertEqual([body for _, body in published], [
-            {'draft': False, 'make_latest': 'false'}, {'draft': False, 'make_latest': 'true'}])
+            {'draft': False, 'make_latest': 'false', 'tag_name': '0.7.0.6'},
+            {'draft': False, 'make_latest': 'true', 'tag_name': 'v0.7.0.6'}])
         self.assertTrue(published[-1][0].endswith('/1'))
         self.sleep.assert_not_called()
         page = next(kw['body'] for method, url, kw in self.writes
@@ -312,7 +313,7 @@ class PageReleaseTest(LauncherReleaseTest):
             self.assertIn('/download/v0.7.0.5/' + name, body)
         publications = [kw['body'] for method, _, kw in self.writes
                         if method == 'PATCH' and 'draft' in kw['body']]
-        self.assertEqual(publications, [{'draft': False, 'make_latest': 'false'}])
+        self.assertEqual(publications, [{'draft': False, 'make_latest': 'false', 'tag_name': '0.7.0.5'}])
 
     def test_corrupt_native_digest_prevents_writes(self):
         self.prepare()

@@ -204,9 +204,17 @@ def tag_commit(gh, tag):
 
 
 def published(gh, rel, latest):
-    change = {"draft": False, "make_latest": "true" if latest else "false"}
+    # tag_name travels with the publish: v0.7.0.7's page came out of a bare
+    # {"draft": false} as "untagged-<hash>" (2026-09-27), its tag in place but not
+    # attached, and needed a second PATCH with tag_name
+    change = {"draft": False, "make_latest": "true" if latest else "false", "tag_name": rel["tag_name"]}
     gh.write(f"publish {rel['tag_name']}{'' if latest else ' (not Latest)'}", "PATCH",
              f"/repos/{REPO}/releases/{rel['id']}", body=change)
+    if not getattr(gh, "dry", True):
+        now = gh.call("GET", f"/repos/{REPO}/releases/{rel['id']}")
+        if now["tag_name"] != rel["tag_name"]:
+            fail(f"published, but GitHub reports its tag as {now['tag_name']!r}, not {rel['tag_name']!r}: "
+                 f"PATCH /releases/{rel['id']} with tag_name {rel['tag_name']!r}")
 
 
 def payload_from_ci(gh, tag, into):
