@@ -390,3 +390,8 @@ The [dev `3cc80874` integration](docs/linux/UPSTREAM_dev_3cc80874.md) records up
 the completed Linux ports through `cc0981bb` back into Windows history. Its
 source tree is identical to the previous Linux integration; runtime behavior
 and version 0.7.0.7 are unchanged. Lua now matches upstream without exceptions.
+
+The [dev `d9196011` integration](docs/linux/UPSTREAM_dev_d9196011.md) preserves
+the release tag when publishing and checks the returned tag afterward, failing
+loudly on a mismatch. This shared tooling change leaves native runtime behavior
+and version 0.7.0.7 unchanged. Publication checks are tested offline.
