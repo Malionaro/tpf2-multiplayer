@@ -103,6 +103,23 @@ errs = []
 bulk_tcp.bulk_connect("192.0.2.1", 9, "recv", 1, "t", timeout=0.5, errors=errs)
 check("4c. an address that never answers: the reason is recorded", len(errs) == 1 and errs[0].startswith("192.0.2.1: "), str(errs))
 
+# 5. names with spaces (Steam persona names) or past 64 bytes: the hello parses,
+#    and its sealed copy opens to the same name
+import dual_tcp   # noqa: E402
+import seal       # noqa: E402
+for n in ("Comrade Silver", "a b  c", "\u00c4" * 40):
+    sent = dual_tcp.link_name(n)
+    got, sealed = dual_tcp.parse_hello(dual_tcp.hello_bytes(sent, b"\x01\x02"))
+    check(f"5a. the hello of {n[:16]!r} parses back to its name", got == sent and sealed == b"\x01\x02", repr(got))
+saved = lobby.SEAL[0]
+lobby.SEAL[0] = seal.Sealer(seal.derive_key(b"k" * 16))
+for n in ("Comrade Silver", "\u00c4" * 40):
+    check(f"5b. a joiner named {n[:16]!r} proves itself",
+          lobby._dual_hello_ok(lobby._dual_hello(n), lobby.SEAL[0]) == dual_tcp.link_name(n))
+lobby.SEAL[0] = saved
+check("5c. a line without the magic, or without a name, is refused",
+      dual_tcp.parse_hello(b"TPF2LINK1 0102") == (None, None) and dual_tcp.parse_hello(b"XX a 0102") == (None, None))
+
 print()
 if fails:
     print(f"{len(fails)} FAILED")

@@ -480,7 +480,8 @@ def _live_join_on(io_dir):
 
 def _dual_hello(name):
     """The hello a peer proves itself with: its name, sealed with the session key."""
-    return dual_tcp.hello_bytes(name, SEAL[0].seal(name.encode("utf-8", "replace")))
+    name = dual_tcp.link_name(name)
+    return dual_tcp.hello_bytes(name, SEAL[0].seal(name.encode("utf-8")))
 
 
 def _dual_hello_ok(line, cipher):
