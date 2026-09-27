@@ -17,7 +17,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "mod", "mp_lockstep_1", "res", "textures", "ui", "button")
 SIZE = 68
 SS = 8          # drawn this many times larger, then scaled down: smooth edges
-BASE = 52       # the torsos' flat bottom, in icon pixels (centres the glyph)
+BASE = 49       # the torsos' flat bottom, in icon pixels: 3 above true centre, so the
+                # bottom-heavy glyph looks centred in the disk (it measured centred and looked low)
 # companies 1, 2 and 3 (style_sheet/mp_lockstep.lua FIRST): front, left, right
 FRONT, LEFT, RIGHT = (230, 25, 75), (0, 130, 200), (60, 180, 75)
 
