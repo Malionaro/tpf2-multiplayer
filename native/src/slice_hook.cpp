@@ -597,4 +597,7 @@ enum VecRead { VEC_UNREADABLE, VEC_EMPTY, VEC_OK };
 #include "slice/town_trace.inl"   // TOWN DEVELOPMENT TRACE (diagnostic, towntrace=1; ../town_trace.h)
 #include "slice/hotjoin_order.inl"   // HOT-JOIN ORDER: person batches in entity-id order (hotjoin_order.inl)
 #include "slice/steam_poll.inl"   // the game's Steam poll thread, throttled while busy (steam_poll.inl)
+#include "save_zstd.h"   // the save stream logic shared with Linux
+#include "../third_party/zstd/lib/zstd.h"   // zstd 1.5.7, built in with ZSTD_MULTITHREAD (build.bat)
+#include "slice/save_zstd.inl"   // SAVES COMPRESS ON ZSTD WORKER THREADS (save_zstd.inl)
 #include "slice/init.inl"   // the relay blobs, hook installation, Init and DllMain

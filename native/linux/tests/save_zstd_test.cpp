@@ -1,6 +1,6 @@
 // savezstd::Streams against a fake libzstd and fake embedded functions, then --
 // where the machine has a threaded libzstd >= 1.4 -- a real round trip through it.
-#include "slice/save_zstd_linux.h"
+#include "save_zstd.h"
 #include <cassert>
 #include <cstdio>
 #include <cstring>
