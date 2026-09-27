@@ -551,3 +551,8 @@ The [dev `d9196011` integration](UPSTREAM_dev_d9196011.md) preserves
 the release tag when publishing and checks the returned tag afterward, failing
 loudly on a mismatch. This shared tooling change leaves native runtime behavior
 and version 0.7.0.7 unchanged. Publication checks are tested offline.
+
+The [dev `24b8f636` integration](UPSTREAM_dev_24b8f636.md) guards shared Fences compatibility
+loading so a missing or failing module disables multiplayer without aborting
+game loading. Offline Lua and native tests pass; no live gameplay result is
+claimed. Version remains 0.7.0.7.
