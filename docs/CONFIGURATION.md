@@ -51,7 +51,7 @@ setting at its default.
 | `share_mods` | `ask` | `ask`, `always`, `never` | Only matters when a host runs the lobby with `--share-mods` (mod sharing is off by default): mods the shared save needs and you lack. `ask` shows a YES / NO in the panel when the host presses START GAME (no answer in 90 s counts as no), `always` downloads without asking, `never` declines. |
 | `slot` | 0 | 0-7 | Position of the Multiplayer entry in the title menu's list (0 = top). |
 | `scale` | 0 | 0.5-3 | Panel scale; 0 = screen height / 1080. |
-| `dedicated` | 0 | `0`, `1` | `1`: dedicated server mode -- the title menu hosts a lobby by itself, loads a world and keeps it up ([DEDICATED_SERVER.md](DEDICATED_SERVER.md)). |
+| `dedicated` | 0 | `0`, `1` | `1`: dedicated server mode -- the title menu hosts a lobby by itself, loads a world and keeps it up ([HOSTING_A_SERVER.md](HOSTING_A_SERVER.md), [DEDICATED_SERVER.md](DEDICATED_SERVER.md)). |
 | `dedicated_save` | empty | a save name (no path parts), under 64 characters | The save the server loads; empty: the newest save in the save folder. |
 | `dedicated_lobby` | empty | text without quotes, under 64 characters | The lobby name in the public list. |
 | `dedicated_name` | empty | no blanks or quotes, under 32 characters | The server's player name; empty: the Steam persona or a random name. |

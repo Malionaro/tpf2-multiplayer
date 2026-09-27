@@ -21,7 +21,7 @@ This branch also contains a **native Linux build-35924 port**. Its current
 integration includes Windows **release 0.7** plus dev `8c3c02a5` and a native
 dedicated server. See [Linux installation](docs/linux/INSTALL.md),
 [current integration and test evidence](docs/linux/UPSTREAM_dev_8c3c02a5.md), and
-[dedicated server setup](tools/server/README.md). Canonical simulation ordering is now on by default (`TPF2MP_ORDER_CANON=0`
+[dedicated server setup](docs/HOSTING_A_SERVER.md). Canonical simulation ordering is now on by default (`TPF2MP_ORDER_CANON=0`
 disables it); see the [dev ad3d66e4 integration](docs/linux/UPSTREAM_dev_ad3d66e4.md).
 Settings must match Windows peers. Loaded-game lifetime and cross-platform
 validation remain outstanding; matching versions do not establish gameplay parity.
@@ -110,6 +110,7 @@ send them yourself if you report a bug. The full text is the
 | document | covers |
 |---|---|
 | [docs/PLAYING.md](docs/PLAYING.md) | hosting, joining, relays, the in-game window, speed, companies, troubleshooting |
+| [docs/HOSTING_A_SERVER.md](docs/HOSTING_A_SERVER.md) | running a dedicated server: on a Windows PC, or on a Linux server or VPS |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | the components, a command's path, time and pacing, sessions, files |
 | [docs/REPLICATION.md](docs/REPLICATION.md) | what replicates and how, per action, and how divergence is detected |
 | [docs/NETWORKING.md](docs/NETWORKING.md) | lobby protocol, join codes, save transfer, dedicated relay, master server |
