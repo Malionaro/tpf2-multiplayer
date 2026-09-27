@@ -293,6 +293,11 @@ for order in (["a", "b"], ["b", "a"]):
     check(f"{tag}: two players, two companies", P.T.companyOf("a") == 1 and P.T.companyOf("b") == 2 and Q.T.companyOf("b") == 2,
           f"{P.T.companyOf('a')} {P.T.companyOf('b')}")
     check(f"{tag}: both stay in the session", P.cm().co.origin["a"] is not None and P.cm().co.origin["b"] is not None)
+    for m in (P, Q):
+        m.cm().ticks = 100000          # long after the join: no second CMJOIN goes out
+        m.join()
+    check(f"{tag}: nobody sends their join again", len(list(P.T.sent.values())) == 0 and len(list(Q.T.sent.values())) == 0,
+          f"{len(list(P.T.sent.values()))} {len(list(Q.T.sent.values()))}")
     # reload in the other order: everyone keeps their company
     rec = from_lua(P.cm().cmSaveState())
     P2 = Machine("a", SAME, "Host", R2, chip=1)

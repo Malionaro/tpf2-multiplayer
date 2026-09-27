@@ -997,7 +997,9 @@ function CM.cmNoPlayer()
 end
 function CM.cmJoinTick(live)
 	if CM.cmBootRefused or not CM.cmBooted or not K.INSTANCE or CM.cmNoPlayer() then return end
-	if CM.cmJoinAsked and CM.co.origin[K.INSTANCE] == CM.cmMyKey() then return end
+	-- joined: our letter is in the registry (under our key, or "<key>|<name>" when
+	-- another game on this Steam account came first -- not the plain key then)
+	if CM.cmJoinAsked and CM.co.origin[K.INSTANCE] ~= nil then return end
 	if CM.cmJoinAsked and (CM.ticks or 0) - (CM.cmJoinAskedAt or 0) < 600 then return end
 	if not live then return end
 	local lm, want = CM.cmLobbyAsk()
