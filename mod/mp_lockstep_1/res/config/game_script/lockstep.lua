@@ -892,6 +892,60 @@ if CM.bootFailed then
 end
 print("[ls-boot] all modules loaded")
 
+-- THE TOOLBAR BUTTON (2026-09-27): a toggle in the game's main toolbar, beside
+-- Big Maps' minimap button, that shows and hides the Multiplayer window -- the
+-- same thing as Ctrl+Shift+D, through the same one-byte tpf2mp_dash.txt the
+-- menu DLL's chord flips and the panel's poll reads, so the three never disagree.
+-- GUI state only; a dedicated server (no screen) never adds it.
+CM.MP_BUTTON_ICON = "ui/button/mp_multiplayer@2x.tga"   -- tools/make_mp_button_icon.py
+CM.MP_BUTTON_TRIES = 600   -- frames to wait for the toolbar
+function CM.dashSetShown(shown)
+	local f = io.open(K.BASE .. "tpf2mp_dash.txt", "w")
+	if f then f:write(shown and "1\n" or "0\n"); f:close() end
+	local D = CM.dash
+	if D and D.win then
+		if not shown and D.chatOpen and CM.chatCloseInput then CM.chatCloseInput() end
+		D.shown = shown
+		D.win:setVisible(shown, false)
+	end
+	CM.mpButtonSync(shown)
+end
+-- the button follows the window when something else moved it (the chord, the "x")
+function CM.mpButtonSync(shown)
+	if CM.mpButton and CM.mpButtonShown ~= shown then
+		CM.mpButtonShown = shown
+		pcall(function() CM.mpButton:setSelected(shown, false) end)
+	end
+end
+function CM.mpButtonInstall()
+	local main = api.gui.util.getById("mainButtonsLayout")
+	local layout = main and main:getItem(0)
+	if not layout then return false end
+	local icon = api.gui.comp.ImageView.new(CM.MP_BUTTON_ICON)
+	icon:setMinimumSize(api.gui.util.Size.new(48, 48))
+	icon:setMaximumSize(api.gui.util.Size.new(60, 60))
+	local button = api.gui.comp.ToggleButton.new(icon)
+	button:setTooltip("Multiplayer (Ctrl+Shift+D)")
+	button:setMinimumSize(api.gui.util.Size.new(48, 48))
+	layout:insertItem(button, 0)
+	CM.mpButton = button
+	CM.mpButtonSync(not (CM.dash and CM.dash.shown == false))
+	button:onToggle(function(on) CM.dashSetShown(on == true) end)
+	print("[ls-gui] toolbar button added")
+	return true
+end
+-- retried each frame until the toolbar exists; an error stops the retries, so a
+-- half-built button is never added twice
+function CM.mpButtonTick()
+	if CM.mpButton or (CM.mpButtonTries or 0) >= CM.MP_BUTTON_TRIES then return end
+	CM.mpButtonTries = (CM.mpButtonTries or 0) + 1
+	local ok, err = pcall(CM.mpButtonInstall)
+	if not ok then
+		CM.mpButtonTries = CM.MP_BUTTON_TRIES
+		print("[ls-gui] could not add the toolbar button: " .. tostring(err))
+	end
+end
+
 function data()
 	return {
 		update = function()
@@ -1446,6 +1500,7 @@ function data()
 			if CM.dedicatedGui then
 				if guiTick % 300 ~= 0 then return end
 			else
+				if CM.dedicatedGui == false then CM.mpButtonTick() end
 				if CM.actionSoundsGuiTick then pcall(CM.actionSoundsGuiTick, CM.recoveryGuiHeld()) end
 				-- THE SPARE LINE'S EDITOR, FROM THIS THREAD (lines.lua CM.spareFireWrite,
 				-- 2026-09-19). A New line click opens the editor on a pre-made line the
@@ -1743,6 +1798,7 @@ function data()
 						if f then f:write("0\n"); f:close() end
 						D.shown = false
 						if D.win then D.win:setVisible(false, false) end
+						CM.mpButtonSync(false)
 					end
 					D.hideDash = hideDash
 					-- The native close button and the footer share hideDash; keep tabs uncluttered.
@@ -2250,6 +2306,7 @@ function data()
 					if not shown and D.chatOpen and CM.chatCloseInput then CM.chatCloseInput() end
 					D.win:setVisible(shown, false)
 				end
+				CM.mpButtonSync(shown)
 			end)
 		end,
 	}
