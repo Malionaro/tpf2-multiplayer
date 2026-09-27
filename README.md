@@ -405,3 +405,8 @@ The [dev `ea15a156` integration](docs/linux/UPSTREAM_dev_ea15a156.md) batches na
 reads and avoids scanning whole-world vectors for a single road edge. Name
 slot pairs are copied in one guarded read. Version remains 0.7.0.7; local
 validation uses memory fixtures and ELF checks, with no in-game timing claim.
+
+The [dev `491716c3` integration](docs/linux/UPSTREAM_dev_491716c3.md) retains
+upstream's dedicated-server measurements for the road-entry guarded-read fix.
+Runtime behavior and version 0.7.0.7 are unchanged; no local performance
+measurement is claimed.

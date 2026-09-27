@@ -156,6 +156,28 @@ server. Measured again with one player in, 1x, world settled:
 - Memory: 27.3 GiB resident, and the load pushed swap use to 3.9 GiB (the
   alignment pass peaked at 28.8 GiB resident with `memory.pressure` around 2%).
 
+### The road-entry sort's page walk (2026-09-27, 0.7.0.6)
+
+On 0.7.0.6 the engine asked for 400 ms batches again at 1x with nobody in. The
+simulation thread was 82% of a core, 89% of it inside `SliceRoadEntriesAdd`: every
+road vehicle's edge Add re-sorts the edge by name, and reaching the edge went through
+`SliceReadStdVector` on the edge-use manager's two whole-world vectors, which proved
+each one readable a page per `process_vm_readv`. About 1,000 syscalls per Add, 293,000
+a second. `ea15a15` checks those vectors' shape only and reads the one element,
+batches `SliceReadable`'s page probes (256 to a syscall), and reads an entity's
+component slots in one go. Installed on the server over the 0.7.0.6 library the same
+afternoon, measured three minutes after the world came up:
+
+- `tpf2_engine_pace.txt` back to **`base=200000`**, the nominal batch.
+- The simulation thread ~33% of a core; `process_vm_readv` 16,000 a second, from the
+  other guarded readers.
+- The main thread is now the busiest (70%): lavapipe's 6,800 `mmap` and 6,800
+  `munmap` a second, the item above.
+
+Loading the world is not the time to measure: until `mp_loading.txt` says "world
+loaded", the pace file is the previous run's, and the load itself spends its time
+in copy-on-write faults and their TLB shootdowns.
+
 ## Limits
 
 - One Steam account per server, in offline mode; the account must own the game and
