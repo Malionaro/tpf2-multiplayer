@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdio>
 // Shared text transformation; embedding supplied by each platform build.
 static const char kGenAnchor[] = "\t\treturn result";
 static const char kGenReplacement[] = "\t\treturn _tpf2_bigmap_generate(result, params) -- tpf2_bigmap memory";
@@ -24,16 +25,21 @@ _tpf2_bigmap_generate = function(result, params)
     -- mapSizeX/Y are heightmap samples at 4 m, 64 * tiles + 1 (MEASURED: 12289
     -- for 192 x 192 tiles), so 32 x 32 km (128 x 128 tiles) is 8193 x 8193.
     local big = x * y > 8193 * 8193
+    -- Buffers the memory budget holds (4-byte floats): above the pass's
+    -- minimum they let independent layers run in parallel. nil = fewest.
+    local budget = tonumber(_tpf2_bigmap_budget) or 0
+    local cap = (big and budget > 0) and math.floor(budget / (x * y * 4)) or nil
     print(string.format("[tpf2_bigmap] generator memory: %.0f x %.0f samples (%.0f x %.0f tiles), %d layers over %d buffer names%s",
-        x, y, (x - 1) / 64, (y - 1) / 64, n, count, big and "" or " (32 x 32 km or less: unchanged)"))
-    if big then result = _tpf2_bigmap_memory.Optimize(result) end
+        x, y, (x - 1) / 64, (y - 1) / 64, n, count,
+        not big and " (32 x 32 km or less: unchanged)" or cap and string.format(", budget %.0f MB = %d buffers", budget / 1048576, cap) or ""))
+    if big then result = _tpf2_bigmap_memory.Optimize(result, cap) end
     return result
 end
 )BMLUA";
 
 // The patched generator text, malloc'd; nullptr when the anchor is not exactly
 // one whole line.
-static char* PatchGeneratorText(const char* src, size_t len, size_t* outLen) {
+static char* PatchGeneratorText(const char* src, size_t len, size_t* outLen, unsigned long long budgetBytes) {
     const size_t a = sizeof kGenAnchor - 1;
     const char* hit = nullptr;
     if (len < a) return nullptr;
@@ -53,7 +59,10 @@ static char* PatchGeneratorText(const char* src, size_t len, size_t* outLen) {
     size_t module = 0;
     for (const char* part : kGeneratorMemoryLuaParts) module += strlen(part);
     const size_t r = sizeof kGenReplacement - 1;
-    size_t total = len - a + r + (sizeof head - 1) + module + (sizeof tail - 1) + (sizeof kGenHelper - 1);
+    char budget[64];
+    int b = std::snprintf(budget, sizeof budget, "_tpf2_bigmap_budget = %llu\n", budgetBytes);
+    if (b < 0 || size_t(b) >= sizeof budget) return nullptr;
+    size_t total = len - a + r + (sizeof head - 1) + module + (sizeof tail - 1) + (sizeof kGenHelper - 1) + size_t(b);
     char* out = (char*)malloc(total + 1);
     if (!out) return nullptr;
     char* o = out;
@@ -65,6 +74,7 @@ static char* PatchGeneratorText(const char* src, size_t len, size_t* outLen) {
     for (const char* part : kGeneratorMemoryLuaParts) { size_t k = strlen(part); memcpy(o, part, k); o += k; }
     memcpy(o, tail, sizeof tail - 1); o += sizeof tail - 1;
     memcpy(o, kGenHelper, sizeof kGenHelper - 1); o += sizeof kGenHelper - 1;
+    memcpy(o, budget, size_t(b)); o += b;
     *o = 0;
     *outLen = size_t(o - out);
     return out;

@@ -513,3 +513,16 @@ All three climates are unchanged at 128 tiles and reduce to 10 names at
 130, 160 and 192 tiles in symbolic replay. The guarded fopen route and ABI
 are unchanged. No new live terrain or peak-memory result is claimed.
 See [integration and tests](../../../docs/linux/UPSTREAM_dev_15ba4df5.md).
+
+## Fantasia parallelism budget — dev 5d73f324
+
+The shared optimizer now accepts a temporary-buffer budget, opening slots
+before reusing the longest-idle slot. Native configuration defaults to
+`generator_memory_budget_pct=50`, capped at 90; 0 selects fewest buffers.
+Linux uses `/proc/meminfo` MemAvailable, with strict-overcommit commit
+headroom as an additional cap. It samples on every redirected open and
+appends the budget to the anonymous stream. The fopen site, SysV ABI and
+ownership contract are unchanged. No new address or layout is introduced.
+See [integration and tests](../../../docs/linux/UPSTREAM_dev_5d73f324.md).
+These symbolic scheduling results are not native generation timings or
+measured memory savings; no new live validation is claimed.

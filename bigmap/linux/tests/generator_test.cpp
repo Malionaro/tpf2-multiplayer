@@ -11,16 +11,37 @@ static std::string Read(FILE* f){assert(f);std::string s;char b[4096];size_t n;w
 static int enabled=1,verify=1,writes=0,patchOk=1;
 static uint8_t installed[16];
 static int Cfg(const char*,const char*,int){return enabled;}
+static int CfgInt(const char*,const char* key,int fallback){assert(!strcmp(key,"generator_memory_budget_pct") && fallback==50);return 0;}
 static int Verify(uintptr_t r,const uint8_t* b,uint32_t n){assert(r==FopenPlt && n==16 && !memcmp(b,FopenBytes,n));return verify;}
 static int Patch(uintptr_t r,const uint8_t* b,uint32_t n){assert(r==FopenPlt && n==16 && b[0]==0xff && b[1]==0x25);++writes;memcpy(installed,b,n);return patchOk;}
 static void Log(const char*,...){}
-extern "C" __attribute__((visibility("default"))) long long TestPatch(const char* src,size_t len,char* out,size_t cap){size_t n=0;char* p=PatchGeneratorText(src,len,&n);if(!p)return -1;if(out && cap>=n)memcpy(out,p,n);free(p);return n;}
+extern "C" __attribute__((visibility("default"))) long long TestPatch(const char* src,size_t len,char* out,size_t cap,unsigned long long budget=0){size_t n=0;char* p=PatchGeneratorText(src,len,&n,budget);if(!p)return -1;if(out && cap>=n)memcpy(out,p,n);free(p);return n;}
 int main(){
-    Tpf2mpHost h{};h.cfgBool=Cfg;h.verifyBytes=Verify;h.patchBytes=Patch;h.log=Log;
+    Tpf2mpHost h{};h.cfgBool=Cfg;h.cfgInt=CfgInt;h.verifyBytes=Verify;h.patchBytes=Patch;h.log=Log;
     enabled=0;assert(!Install(&h) && writes==0);enabled=1;verify=0;assert(!Install(&h) && writes==0);verify=1;patchOk=0;assert(!Install(&h) && writes==1);patchOk=1;assert(Install(&h) && writes==2);host=nullptr;
     for(const char* bad:{"","x","\t\treturn result -- no\n","x\t\treturn result\n","\t\treturn result\n\t\treturn result\n"})assert(TestPatch(bad,strlen(bad),nullptr,0)==-1);
     for(const char* good:{"\t\treturn result","\t\treturn result\n","\t\treturn result\r\n"})assert(TestPatch(good,strlen(good),nullptr,0)>0);
+    assert(budgetPct==0);
+    assert(Budget(10000,6000,2000,2,50)==2000);
+    assert(Budget(10000,6000,2000,0,50)==5000);
+    assert(Budget(10000,6000,2000,1,50)==5000);
+    assert(Budget(10000,6000,7000,2,50)==0);
+    assert(Budget(10000,6000,6000,2,50)==0);
+    assert(Budget(10000,6000,2000,0,100)==9000);
+    assert(Budget(10000,6000,2000,0,-1)==0);
+    assert(Budget(UINT64_MAX,6000,2000,0,50)==0);
+    assert(Budget(10000,UINT64_MAX,2000,2,50)==0);
+    assert(Budget(UINT64_MAX-1,0,0,0,90)<UINT64_MAX);
     char root[]="generator-test-XXXXXX";assert(mkdtemp(root));
+    auto info=std::filesystem::path(root)/"meminfo";
+    auto mode=std::filesystem::path(root)/"mode";
+    {std::ofstream f(info);f<<"MemAvailable: 10000 kB\nCommitLimit: 6000 kB\nCommitted_AS: 2000 kB\n";}
+    {std::ofstream f(mode);f<<"2\n";}
+    budgetPct=50;assert(BudgetBytes(info.c_str(),mode.c_str())==4000*1024/100*50);
+    assert(BudgetBytes("missing",mode.c_str())==0);
+    {std::ofstream f(info);f<<"MemAvailable: 10000 kB\n";}
+    assert(BudgetBytes(info.c_str(),mode.c_str())==0);
+    budgetPct=0;
     auto dir=std::filesystem::path(root)/"res/config/terrain_generators";std::filesystem::create_directories(dir);
     auto path=dir/"fantasia_map_generator.gen.lua";const std::string src="function data()\n\t\treturn result\nend\n";
     {std::ofstream f(path);f<<src;}
@@ -34,6 +55,7 @@ int main(){
     assert(Index(path.c_str())==0);assert(Index("/res/scripts/fantasia_map_generator.gen.lua")==-1);
     assert(Index("/res/config/terrain_generators/xfantasia_map_generator.gen.lua")==-1);
     const auto patched=Read(Open(path.c_str(),"rb"));assert(patched.find("_tpf2_bigmap_memory.Optimize")!=std::string::npos);
+    assert(patched.find("_tpf2_bigmap_budget = 0\n")!=std::string::npos);
     assert(Read(std::fopen(path.c_str(),"rb"))==src);
     // Concurrent lifetimes: opening another stream cannot replace the first stream.
     FILE* first=Open(path.c_str(),"rb");assert(Read(Open(path.c_str(),"rb"))==patched);assert(Read(first)==patched);

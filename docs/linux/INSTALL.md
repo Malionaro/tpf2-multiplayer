@@ -524,5 +524,14 @@ If you installed the earlier `tpf2_bigmap_fantasia_low_memory_1` stand-in,
 disable it in the mod list before using the normal Fantasia generator. The
 old installer and stand-in files were retired upstream. Check the plugin log
 for `generator memory: ... served with buffer reuse`. See
-[integration evidence](UPSTREAM_dev_15ba4df5.md); native rendered terrain and
+[integration evidence](UPSTREAM_dev_5d73f324.md); native rendered terrain and
 peak memory still need live validation.
+
+`generator_memory_budget_pct=50` lets Fantasia spend half of available RAM on
+buffers to preserve generation parallelism; values above 90 are capped, and
+0 (or negative) requests the fewest buffers. Linux samples `MemAvailable`
+at each generator open, additionally capped by `CommitLimit - Committed_AS`
+when `vm.overcommit_memory=2`. Failed queries fall back to the fewest buffers.
+This is a buffer scheduling budget, not a hard limit on game memory: values
+alive together may require more buffers. Stock generators retain their
+fewest-buffer path, and maps at/below 128 x 128 tiles remain unchanged.

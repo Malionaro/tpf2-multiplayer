@@ -373,3 +373,8 @@ Fantasia buffer reuse to measure generator dimensions in heightmap samples.
 128 x 128 tiles remain unchanged; larger sample areas use the optimizer.
 Native build and symbolic pipeline tests pass; live memory savings remain
 unmeasured. Version remains 0.7.0.7.
+
+The [dev `5d73f324` integration](docs/linux/UPSTREAM_dev_5d73f324.md) adds
+Fantasia generator memory budgeting on native Linux, allowing extra buffers
+for parallelism. Release remains 0.7.0.7; native generation timing and peak
+memory validation remain outstanding.
