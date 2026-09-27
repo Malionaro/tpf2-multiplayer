@@ -52,7 +52,7 @@ earlier versions were removed on 2026-09-20.
 Bound to localhost; nginx proxies https://<host>/tpf2mp/ to it. Stdlib only, one
 file, runs as a systemd service (see the deploy step in tools/masterserver_deploy.sh).
 """
-import argparse, io, json, os, re, secrets, select, socket, sys, time, threading, zipfile
+import argparse, json, re, secrets, select, socket, sys, time, threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 TTL = 30.0           # seconds an entry lives without a fresh announce (lobbies announce every 10 s)

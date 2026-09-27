@@ -695,7 +695,7 @@ def redact(text):
         return text
 
     def mask(m):
-        head, tail = m.group(1), m.group(2)
+        head = m.group(1)
         if head.startswith(("127.", "10.", "192.168.")) or head.startswith("169.254."):
             return m.group(0)
         if head.startswith("172."):
@@ -2901,7 +2901,7 @@ class _ClientSaveReceiver:
 
     def _pipe_pull(self, ip, port, pair, sid, token):
         """A thread: dial the master's pipe, say the usual hello, read the stream."""
-        self.log(f"[client] the host's transfer is slow -- meeting it at the master's TCP pipe")
+        self.log("[client] the host's transfer is slow -- meeting it at the master's TCP pipe")
         errs = []
         sock = bulk_tcp.pipe_connect(ip, port, pair, "J", errors=errs)
         if sock is None:
@@ -3106,7 +3106,7 @@ class _ClientSaveReceiver:
                     # a registration: the on-disk folders are catalogued; what is
                     # not here at all is still to be downloaded (need, prompt, round)
                     self.mods_satisfied = not self.need
-                    self.log(f"[client] the game registered the mods already on this PC"
+                    self.log("[client] the game registered the mods already on this PC"
                              + ("" if self.mods_satisfied else f"; {len(self.need)} still to download"))
                     if self.mods_satisfied:
                         self.io.emit({"type": "mods_ready", "failed": [], "registered": len(check)})
@@ -3738,7 +3738,6 @@ class _Publisher:
             return r.status
 
     def _run(self):
-        import urllib.error
         announced = False
         while not self._stop.is_set():
             try:
@@ -6399,7 +6398,6 @@ def run_client(conn, my_name, io, stop=None, host_gone_after=HOST_GONE_AFTER,
     last_ping = 0.0
     last_dual_tick = [0.0]
     join_sent_at = time.time()
-    welcomed = [False]
     try:
         while not stop.is_set():
             if not version_checked[0] and time.time() - join_sent_at > 15.0:
@@ -7022,7 +7020,7 @@ def selftest():
                 print(f"[selftest]   {k} has chat: {got}")
             print("[selftest] FAIL (b): chat did not reach all three")
         else:
-            print(f"[selftest] OK (b): chat reached host + both joiners")
+            print("[selftest] OK (b): chat reached host + both joiners")
 
         # (c) a legacy (no-save) START from the host -> everyone emits
         #     {"type":"start","save":false}

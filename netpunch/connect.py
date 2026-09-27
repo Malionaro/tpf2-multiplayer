@@ -47,9 +47,7 @@ import argparse
 import base64
 import hashlib
 import hmac
-import ipaddress
 import json
-import os
 import socket
 import struct
 import sys
