@@ -669,3 +669,8 @@ The [dev `65302e5d` integration](UPSTREAM_dev_65302e5d.md)
 adds native parallel sidecar decoding at the alignment pass and retains the
 file for both terrain versions. Sidecars remain experimental and off by default;
 fixture tests pass, but the lab could not start for live validation.
+
+The [dev `a2e47f2c` integration](UPSTREAM_dev_a2e47f2c.md) adds Windows-only
+profiling diagnostics; it changes no native installation, settings or runtime
+behavior. See the [tooling scope](../re/linux/DEV_A2E47F2C.md) before using
+these tools with native Linux captures.

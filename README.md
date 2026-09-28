@@ -514,3 +514,7 @@ The [dev `65302e5d` integration](docs/linux/UPSTREAM_dev_65302e5d.md)
 adds native parallel sidecar decoding at the alignment pass and retains the
 file for both terrain versions. Sidecars remain experimental and off by default;
 fixture tests pass, but the lab could not start for live validation.
+
+The [dev `a2e47f2c` integration](docs/linux/UPSTREAM_dev_a2e47f2c.md)
+retains Windows profiler follow mode and ETW stack/wait readers as developer
+tools. Native runtime behavior and release 0.7.1.1 are unchanged.

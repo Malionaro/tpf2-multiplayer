@@ -233,6 +233,8 @@ class ProcState:
         self.chains = collections.Counter()
         self.win_chains = collections.Counter()
         self.hproc = None
+        self.follow = set()       # --follow: exe function keys whose thread is then walked on EVERY sample
+        self.followed = set()     # the tids found that way
 
     def refresh(self):
         for tid in threads(self.pid):
@@ -284,10 +286,13 @@ class ProcState:
             key, is_wait = (None, False)
             if ok:
                 key, is_wait = self.classify(C.c_uint64.from_address(ctx + RIP_OFF).value)
-                if key in self.stack_at and self.hproc:
+                if key in self.follow and tid not in self.followed:
+                    self.followed.add(tid)
+                    print('      following tid %d (sampled in %s)' % (tid, key), flush=True)
+                if (key in self.stack_at or tid in self.followed) and self.hproc:
                     frames = walk(self.hproc, h, ctx)
                     chain = [self.classify(pc)[0] for pc in frames[1:]]
-                    chain = [k for k in chain if k.startswith('exe!')][:6]
+                    chain = [k for k in chain if k.startswith('exe!')][:5 if tid in self.followed else 6]
                     self.chains[(key,) + tuple(chain)] += 1
                     self.win_chains[(key,) + tuple(chain)] += 1
             k32.ResumeThread(h)
@@ -405,6 +410,7 @@ def main():
     ap.add_argument('--threads', type=int, default=3, help='busiest threads listed per window (UI spinners skipped)')
     ap.add_argument('--map', action='append', default=[], help='MSVC linker map of a plugin DLL (repeatable): names its samples')
     ap.add_argument('--stack-at', default='', help='comma-separated exe function addresses (0x140...): unwind samples that land in them')
+    ap.add_argument('--follow', default='', help='comma-separated exe function addresses: the thread first sampled in one is unwound on every sample from then on')
     a = ap.parse_args()
 
     exe_ib, exe_fn = pdata(EXE_PATH)
@@ -441,6 +447,9 @@ def main():
         st.interval = a.interval
         st.threads_shown = a.threads
         st.window_s = a.window
+        if a.follow:
+            st.follow = {'exe!0x%x' % int(x, 16) for x in a.follow.split(',') if x}
+            a.stack_at = a.stack_at or a.follow
         if a.stack_at:
             st.stack_at = {'exe!0x%x' % int(x, 16) for x in a.stack_at.split(',') if x}
             st.hproc = k32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, st.pid)
