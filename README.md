@@ -1,7 +1,7 @@
 # TpF2 Multiplayer — Transport Fever 2 multiplayer mod
 
-Current release integration: **0.7.1.1**, Windows dev `b6d73041`; see the
-[integration and validation record](docs/linux/UPSTREAM_dev_b6d73041.md). All peers, including dedicated
+Current release integration: **0.7.1.1**, Windows dev `7e3d3bfa`; see the
+[integration and validation record](docs/linux/UPSTREAM_dev_7e3d3bfa.md). All peers, including dedicated
 servers, must update. Existing native Sandbox town-tool capture, minimap and
 cargo-filter limitations remain. Upstream performance measurements were not
 repeated locally; matching release numbers do not establish gameplay parity.
@@ -498,3 +498,8 @@ The [dev `26564158` integration](docs/linux/UPSTREAM_dev_26564158.md) searches
 outward from each native terrain-sidecar worker's last hit and reports probes
 per lookup at load completion. Sidecars remain experimental and default off;
 fixture probe counts do not establish a live load-time improvement.
+
+The [dev `7e3d3bfa` integration](docs/linux/UPSTREAM_dev_7e3d3bfa.md) retains the Windows material-index
+optimization and DLL-map profiler support. Native material-index acceleration
+remains unported: the Linux selection loop is inlined, and the lab failed
+before startup, preventing buffer-lifetime proof. Release remains 0.7.1.1.

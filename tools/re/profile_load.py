@@ -80,6 +80,29 @@ class THREADENTRY32(C.Structure):
                 ("tpDeltaPri", C.c_long), ("dwFlags", W.DWORD)]
 
 
+def load_map(path):
+    """(module name, sorted [(rva, symbol)]) from an MSVC linker map (/MAP), for
+    naming samples inside a plugin DLL instead of lumping them by module."""
+    base, syms = None, []
+    with open(path, encoding='latin-1') as f:
+        for line in f:
+            if 'Preferred load address is' in line:
+                base = int(line.split()[-1], 16)
+                continue
+            parts = line.split()
+            if base is None or len(parts) < 4 or ':' not in parts[0] or len(parts[2]) != 16:
+                continue
+            try:
+                va = int(parts[2], 16)
+            except ValueError:
+                continue
+            if va >= base:
+                syms.append((va - base, parts[1]))
+    syms.sort()
+    import os
+    return os.path.basename(path).rsplit('.', 1)[0].lower() + '.dll', syms
+
+
 def modules(pid):
     snap = k32.CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid)
     me = MODULEENTRY32()
@@ -161,6 +184,7 @@ class ProcState:
         self.threads_shown = 3    # --threads
         self.window_s = 30.0      # --window, for the "cores busy" line
         self.interval = 0.02      # overwritten from argv so CPU-s are honest
+        self.maps = {}            # module name (lower) -> ([rva], [symbol]) from --map
 
     def refresh(self):
         for tid in threads(self.pid):
@@ -188,7 +212,15 @@ class ProcState:
             if len(m):
                 return 'exe!0x%x' % (self.exe_ib + int(m[0]['b'])), False
             return 'exe!<no pdata>', False
-        return next((n for lo, hi, n in self.mods if lo <= rip < hi), '<unmapped>'), False
+        mod = next(((lo, n) for lo, hi, n in self.mods if lo <= rip < hi), None)
+        if mod is None:
+            return '<unmapped>', False
+        syms = self.maps.get(mod[1].lower())
+        if syms:
+            i = bisect.bisect_right(syms[0], rip - mod[0]) - 1
+            if i >= 0:
+                return '%s!%s' % (mod[1], syms[1][i][:90]), False
+        return mod[1], False
 
     def sample(self, ctx):
         for tid, h in list(self.handles.items()):
@@ -310,6 +342,7 @@ def main():
     ap.add_argument('--interval', type=float, default=0.02)
     ap.add_argument('--window', type=float, default=30.0, help='seconds per delta snapshot')
     ap.add_argument('--threads', type=int, default=3, help='busiest threads listed per window (UI spinners skipped)')
+    ap.add_argument('--map', action='append', default=[], help='MSVC linker map of a plugin DLL (repeatable): names its samples')
     a = ap.parse_args()
 
     exe_ib, exe_fn = pdata(EXE_PATH)
@@ -346,6 +379,9 @@ def main():
         st.interval = a.interval
         st.threads_shown = a.threads
         st.window_s = a.window
+        for mp in a.map:
+            name, syms = load_map(mp)
+            st.maps[name] = ([r for r, _ in syms], [n for _, n in syms])
     raw_ctx = (C.c_char * (CONTEXT_SIZE + 16))()
     ctx = (C.addressof(raw_ctx) + 15) & ~15
 

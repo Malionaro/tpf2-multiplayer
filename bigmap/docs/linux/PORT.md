@@ -633,3 +633,14 @@ The native regression requires 720 probes for 480 alternating-worker lookups
 and checks surviving workers after LoadHook. No engine ABI or patch changes;
 sidecars remain experimental and default off. See the
 [integration record](../../../docs/linux/UPSTREAM_dev_5fd49a24.md).
+
+## Material-index layer cache and dither stepping (dev 7e3d3bfa, not ported)
+
+Windows caches each layer's height-map pointer and ID once per call and steps
+the dither column. Linux still executes the stock selection loop;
+`material_index_fast` has no native implementation. Fresh disassembly located
+the matching loop inside worker `0xcc41f0`, reached from UpdateBoxAsync's
+ThreadPool loop. The lab failed UID-map setup before game startup, so worker
+ownership and a safe replacement boundary remain unproved. No Windows
+address or calling convention was copied into Linux. See the
+[static and live evidence](../../../docs/re/linux/DEV_7E3D3BFA.md).

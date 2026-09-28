@@ -649,7 +649,12 @@ see the host's save folder. The default is 1; native sidecars remain experimenta
 and require `terrain_sidecar=1`. With local reads and `terrain_stream` both off,
 the normal terrain computation runs. This switch does not disable sidecar writes.
 
-The [dev `b6d73041` integration](UPSTREAM_dev_b6d73041.md) retains Windows’
+The [dev `b6d73041` integration](UPSTREAM_dev_7e3d3bfa.md) retains Windows’
 4 GiB maximum automatic free-commit threshold and `commit_tight_mb` override.
 Native terrain paging continues to use `MemAvailable`; this Windows setting
 has no native effect. Release remains 0.7.1.1.
+
+The [dev `7e3d3bfa` integration](UPSTREAM_dev_7e3d3bfa.md) retains the Windows material-index
+optimization and DLL-map profiler support. Native material-index acceleration
+remains unported: the Linux selection loop is inlined, and the lab failed
+before startup, preventing buffer-lifetime proof. Release remains 0.7.1.1.
