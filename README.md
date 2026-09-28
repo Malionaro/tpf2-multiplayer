@@ -1,7 +1,7 @@
 # TpF2 Multiplayer — Transport Fever 2 multiplayer mod
 
-Current release integration: **0.7.1.1**, Windows dev `40e12f76`; see the
-[integration and validation record](docs/linux/UPSTREAM_dev_40e12f76.md). All peers, including dedicated
+Current release integration: **0.7.1.1**, Windows dev `d8c98ccb`; see the
+[integration and validation record](docs/linux/UPSTREAM_dev_d8c98ccb.md). All peers, including dedicated
 servers, must update. Existing native Sandbox town-tool capture, minimap and
 cargo-filter limitations remain. Upstream performance measurements were not
 repeated locally; matching release numbers do not establish gameplay parity.

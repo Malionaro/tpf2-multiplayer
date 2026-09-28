@@ -45,13 +45,31 @@ int main(){
         for(size_t i=0;i<TerrainCodec::Samples;++i)assert(p[i]==0);
         assert(pager.Release(p));
     }
+    // dev d8c98ccb: allocation must not wait for the zero budget to recover.
+    const auto allocationStart=std::chrono::steady_clock::now();
     std::vector<uint16_t*> tiles;
     for(int n=0;n<32;++n){auto* p=pager.Allocate();assert(p);for(size_t i=0;i<TerrainCodec::Samples;++i)p[i]=uint16_t(i/257+i%257+n);tiles.push_back(p);}
+    const auto allocationMs=std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now()-allocationStart).count();
+    assert(pager.Get().budget==0 && pager.Get().resident>0 && allocationMs<1000);
     for(int tries=0;tries<100 && pager.Get().evictions<32;++tries)std::this_thread::sleep_for(std::chrono::milliseconds(100));
     assert(pager.Get().evictions>=32 && pager.Get().resident==0);
     unsigned char residency[linux_pager::TerrainPager::Stride/4096];
     assert(mincore(tiles[0],linux_pager::TerrainPager::Stride,residency)==0);
     for(auto page:residency)assert(!(page&1));
+    // Restore two cold tiles while over a fixed zero budget. There is no
+    // allocation-burst flag or fault-side budget wait in the native backend.
+    // The second restore must finish without waiting for the first tile's
+    // two-second recency protection to expire and permit eviction.
+    const auto restoreStart=std::chrono::steady_clock::now();
+    for(int n=0;n<2;++n)
+        for(size_t i=0;i<TerrainCodec::Samples;++i)
+            assert(tiles[n][i]==uint16_t(i/257+i%257+n));
+    const auto restoreMs=std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now()-restoreStart).count();
+    assert(pager.Get().budget==0 && pager.Get().resident>=2 && restoreMs<1000);
+    printf("PASS: zero-budget allocation %lld ms, cold restores %lld ms\n",
+           (long long)allocationMs,(long long)restoreMs);
     std::vector<std::thread> readers;
     for(int n=0;n<8;++n)readers.emplace_back([&,n]{for(int k=n;k<32;k+=8)for(size_t i=0;i<TerrainCodec::Samples;++i)assert(tiles[k][i]==uint16_t(i/257+i%257+k));});
     for(auto& t:readers)t.join();
