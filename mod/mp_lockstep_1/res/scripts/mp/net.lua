@@ -880,10 +880,30 @@ end
 -- are is also what turns the player's actions off (inject.lua CM.actionsBlockTick).
 -- Not defined above scheduleLocal: tools/bridge_companion_test.py cuts the wire
 -- codec out of this file as the text between encodeCmd and scheduleLocal.
+-- RECENT IN WALL TIME, NOT ONLY IN TICKS (2026-09-27). "Fresh" above means heard
+-- within K.PEER_STALE_TICKS of OUR ticks, and a game catching up at 4x burns those
+-- four times as fast: the leader's last heartbeat read stale about a second after
+-- it arrived, this returned nil, the action gate took that as "0.0 behind" and
+-- turned actions back on 35 units behind the leader, and the automatic LSPARE was
+-- stamped with no lead at all -- 13.6 on the joiner, 48.2 on the leader, a line
+-- created at two different times, and the towns grew apart from it (desync at
+-- t=864 on the project's server). So a peer heard within K.PEER_CLOCK_RECENT_SEC of
+-- os.clock still counts, projected forward like projectedPeerMax (at most 5 s of
+-- it): a stamp in any peer's past is a desync, one a little in its future waits.
+K.PEER_CLOCK_RECENT_SEC = K.PEER_CLOCK_RECENT_SEC or 15
 function CM.fastestPeerClock()
 	local _, fastT = CM.peerBounds()
 	local projT = CM.projectedPeerMax and CM.projectedPeerMax() or nil
 	if projT and (not fastT or projT + K.SIM_STEP > fastT) then fastT = projT + K.SIM_STEP end
+	local clk, rate = os.clock(), CM.simRate or 0
+	for _, pr in pairs(CM.peers or {}) do
+		local base = pr.step and (pr.step * K.SIM_STEP) or pr.time
+		local age = pr.clk and (clk - pr.clk)
+		if base and age and age >= 0 and age <= (K.PEER_CLOCK_RECENT_SEC or 15) then
+			local pt = base + (rate > 0 and math.min(age, 5) * rate or 0) + K.SIM_STEP
+			if not fastT or pt > fastT then fastT = pt end
+		end
+	end
 	return fastT
 end
 
