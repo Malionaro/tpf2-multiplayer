@@ -1014,7 +1014,16 @@ function CM.execDelayTick()
 	CM.tickClk = clk
 	if not CM.execDelayAuto then CM.execDelayCur = K.EXEC_DELAY; return end
 	-- a held or paused game measures a sim rate near 0: never let that shrink the delay
-	local rate = math.max(CM.simRate or 0, (CM.effSpeed or 1) * 0.9, 0.9)
+	-- BELOW 1x (2026-09-28, the user: "can we reduce the delay at slower speeds?"):
+	-- the 0.9 floor sized a 0.25x session's delay for 1x -- 1.6 units, ~7 s of wall
+	-- time before a build appeared while the governor held a joiner's catch-up.
+	-- A running session under 1x is sized by its own speed, times
+	-- K.DELAY_RAMP_MARGIN: the leader raises a speed under 1x at most
+	-- K.SPEED_RAMP per K.SPEED_RAMP_TICKS (pacing.lua), so a command in flight
+	-- still lands before its stamp. Paused, or at 1x and over: as before.
+	local e = CM.effSpeed or 1
+	local floor = (e > 0 and e < 1) and math.max(0.1, e * 0.9 * (K.DELAY_RAMP_MARGIN or 1.6)) or 0.9
+	local rate = math.max(CM.simRate or 0, e * 0.9, floor)
 	local worstMs, who
 	for o, pr in pairs(CM.peers) do
 		if pr.srtt and (pr.rttN or 0) >= K.RTT_MIN_SAMPLES and pr.at and (CM.ticks - pr.at) <= K.PEER_STALE_TICKS then
@@ -1046,7 +1055,10 @@ function CM.execDelayTick()
 	elseif want < cur - 1e-6 and (not raw or raw <= cur - K.SIM_STEP - K.DELAY_DOWN_MARGIN) then
 		CM.execDelayLowSince = CM.execDelayLowSince or CM.ticks
 		if CM.ticks - CM.execDelayLowSince >= K.DELAY_DOWN_TICKS then
-			local nxt = snapStep(math.max(want, cur - K.SIM_STEP))
+			-- half the way down per step (at least one sim step): a session slowed to
+			-- 0.25x waited ~30 s for 1.6 -> 0.4 at one step per K.DELAY_DOWN_TICKS.
+			-- Lowering is always safe; only a stamp that is too near can be late.
+			local nxt = snapStep(math.max(want, cur - math.max(K.SIM_STEP, (cur - want) / 2)))
 			log(string.format("EXEC_DELAY auto: %.1f -> %.1f (%s)", cur, nxt, why))
 			cur, CM.execDelayLowSince = nxt, CM.ticks
 		end
