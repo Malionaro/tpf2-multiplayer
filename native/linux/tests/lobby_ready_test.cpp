@@ -207,6 +207,16 @@ int main(int argc, char** argv)
     rosterLoading(R"json({"third":"catching up (12 s behind)"})json");
     assert(readLoading() == "b=third=catching up (12 s behind)\n");
     rosterLoading("{}"); assert(readLoading().empty());
+    // Windows regression: empty objects must not find names in later objects.
+    {
+        lobby::Json bounded;
+        assert(lobby::ParseJson(R"({"players":["host","joiner","third"],"host":"host","you":"joiner","relay":true,"stages":{},"companies":{},"letters":{"host":"z","joiner":"ac","third":"b"}})", &bounded));
+        lobby::ApplyRoster(bounded);
+        assert(readLoading().empty());
+        assert(model.companies == std::vector<int>({1,1,1}));
+        assert(model.letters == std::vector<std::string>({"z","ac","b"}));
+    }
+
     rosterLoading(R"({"third":"loading world"})");
     lobby::Json departed;
     assert(lobby::ParseJson(R"({"players":["host","joiner"]})", &departed));

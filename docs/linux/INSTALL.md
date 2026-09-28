@@ -1,7 +1,7 @@
 # TpF2 Multiplayer on Linux: install, uninstall, logs
 
-Current release integration: **0.7.1.1**, Windows dev `412aeb8e`; see the
-[integration and validation record](UPSTREAM_dev_412aeb8e.md). All peers, including dedicated
+Current release integration: **0.7.1.1**, Windows dev `bde31323`; see the
+[integration and validation record](UPSTREAM_dev_bde31323.md). All peers, including dedicated
 servers, must update. Existing native Sandbox town-tool capture, minimap and
 cargo-filter limitations remain. Upstream performance measurements were not
 repeated locally; matching release numbers do not establish gameplay parity.
@@ -598,3 +598,8 @@ The [dev `ac3b4be3` integration](UPSTREAM_dev_ac3b4be3.md) records
 upstream merging the completed Linux ports through `412aeb8e` back into Windows
 history. Its source tree matches the preceding Linux integration; runtime
 behavior and release **0.7.1.1** are unchanged.
+
+The [dev `bde31323` integration](UPSTREAM_dev_bde31323.md) brings the
+company registry rewrite, rebuilt COMPANIES tab and native free-color tints.
+Release remains 0.7.1.1. Native and shared regression tests pass; the lab launch
+was blocked before game startup, so live gameplay validation remains outstanding.
