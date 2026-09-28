@@ -1,5 +1,9 @@
 # TpF2 Multiplayer on Linux: install, uninstall, logs
 
+The [dev `86f806df` integration](UPSTREAM_dev_86f806df.md) keeps
+terrain streams running across later STARTs, avoiding replacement while a
+joiner reads the same sidecar. Shared Linux/Windows lobby; release 0.7.1.2.
+
 The [dev `effa7243` integration](UPSTREAM_dev_effa7243.md) prevents
 repeat save transfers while a joining player’s mods are packing, queued or
 being delivered. The shared lobby fix applies to native Linux and Windows;

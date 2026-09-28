@@ -15,6 +15,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "netpunch"))
@@ -95,6 +96,38 @@ def run(blob, receiver_cb=None, loss=0.0, sha=None, steps=20000):
 
 
 class TerrainStream(unittest.TestCase):
+    def test_stream_lookup_checks_every_stream_and_only_active_peers(self):
+        other = ("127.0.0.1", 40002)
+        key = ("/saves/world.terr", 100, 123)
+        streams = [
+            SimpleNamespace(terr_key=("/saves/old.terr", 100, 123),
+                            peers={JOINER: {"state": "active"}}),
+            SimpleNamespace(terr_key=key, peers={other: {"state": "active"}}),
+            SimpleNamespace(terr_key=key, peers={JOINER: {"state": "active"}}),
+        ]
+        self.assertTrue(lobby._terr_streaming(streams, key, JOINER))
+        for state in ("done", "failed", "dropped"):
+            with self.subTest(state=state):
+                streams[-1].peers[JOINER]["state"] = state
+                self.assertFalse(lobby._terr_streaming(streams, key, JOINER))
+                self.assertTrue(lobby._terr_streaming(streams, key, other))
+
+    def test_sidecar_key_detects_same_size_rewrite_and_normalizes_path(self):
+        d = Path(_TMP.name) / "key-test"
+        d.mkdir(exist_ok=True)
+        terr = d / "world.terr"
+        terr.write_bytes(sidecar(100))
+        key = lobby._terr_key(str(terr))
+        alias = os.path.join(str(d), "..", d.name, terr.name)
+        self.assertEqual(lobby._terr_key(alias), key)
+        terr.write_bytes(sidecar(100, seed=2))
+        # Set a distinct timestamp explicitly: no filesystem-resolution sleep.
+        st = terr.stat()
+        os.utime(terr, ns=(st.st_atime_ns, key[2] + 2_000_000_000))
+        changed = lobby._terr_key(str(terr))
+        self.assertEqual(changed[:2], key[:2])
+        self.assertNotEqual(changed, key)
+
     def test_streams_in_order_under_loss_and_reorder(self):
         blob = sidecar(700_000)
         prefixes = []
@@ -164,6 +197,29 @@ class TerrainStream(unittest.TestCase):
         terr.write_bytes(b"NOPE" + bytes(100))
         self.assertIsNone(lobby._terr_for_save(str(sav)), "not a sidecar")
         self.assertIsNone(lobby._terr_for_save(str(d / "w.lua")))
+
+    def test_a_second_start_leaves_a_running_stream_alone(self):
+        """A START for a joiner already receiving this sidecar sends nothing new:
+        a replacement left the joiner's game reading a stream that stopped half
+        way, and it computed the terrain itself (2026-09-28)."""
+        d = Path(_TMP.name) / "saves2"
+        d.mkdir(exist_ok=True)
+        terr = d / "w.terr"
+        terr.write_bytes(sidecar(100))
+        key = lobby._terr_key(str(terr))
+        other = ("127.0.0.1", 40002)
+        tx = lobby._HostSaveTransfer(Wire().sock, 77, b"x" * 100, [{"name": lobby.TERR_NAME, "size": 100, "sha256": "0" * 64}],
+                                     [(JOINER, "joiner")], lobby._QuietIO(type("IO", (), {"dir": _TMP.name})()), lambda s: None,
+                                     kind="terr", overall_sha="0" * 64)
+        tx.terr_key = key
+        self.assertTrue(lobby._terr_streaming([tx], key, JOINER), "same file, still sending: leave it")
+        self.assertFalse(lobby._terr_streaming([tx], key, other), "a joiner not in it gets the file")
+        time.sleep(0.02)
+        terr.write_bytes(sidecar(120))                       # saved again under the same name
+        self.assertNotEqual(lobby._terr_key(str(terr)), key)
+        self.assertFalse(lobby._terr_streaming([tx], lobby._terr_key(str(terr)), JOINER), "a new file is a new load")
+        tx.peers[JOINER]["state"] = "done"
+        self.assertFalse(lobby._terr_streaming([tx], key, JOINER), "a finished stream is not held for")
 
 
 if __name__ == "__main__":

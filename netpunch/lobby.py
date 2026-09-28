@@ -3454,6 +3454,27 @@ def _terr_for_save(save_path):
     return terr
 
 
+def _terr_key(path):
+    """Which sidecar, as it is on disk now: a save written again under the same
+    name is another file."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return (path, None, None)
+    return (os.path.normcase(os.path.abspath(path)), st.st_size, st.st_mtime_ns)
+
+
+def _terr_streaming(streams, key, addr):
+    """True if one of the running terrain ``streams`` is still sending the
+    sidecar ``key`` to ``addr``: a second START for that joiner (another
+    player's start, a retried push) must leave that stream alone."""
+    for tx in streams:
+        p = tx.peers.get(addr)
+        if p is not None and p["state"] == "active" and getattr(tx, "terr_key", None) == key:
+            return True
+    return False
+
+
 def _terr_read(path):
     """WORKER THREAD: (blob, sha256 hex) of a sidecar, or None."""
     try:
@@ -4088,7 +4109,7 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
     start_save = [False]                    # save flag of the last broadcast start
     last_emitted_roster = [None]
     transfer = [None]                       # the active _HostSaveTransfer, or None
-    terr_transfer = [None]                  # the terrain sidecar streaming to joiners after a START (kind "terr"), or None
+    terr_streams = []                       # the terrain sidecars streaming to joiners after a START (kind "terr"), each with .terr_key
     terr_jobs = queue.Queue()               # (sid, path, targets, (blob, sha) | None) from the sidecar reader thread
     unplaced_feedback = set()               # (addr, sid) of facks/fdones the transfer could not place, logged once each
     upload = [None]                         # relay-only: the leader's save coming in
@@ -4549,6 +4570,11 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
         if path is None:
             log(f"[host] terrain stream: no sidecar for {os.path.basename(str(save_path))} -- joiners compute their terrain")
             return
+        key = _terr_key(path)
+        targets = [(a, n) for a, n in targets if not _terr_streaming(terr_streams, key, a)]
+        if not targets:
+            log(f"[host] terrain stream: every joiner started is already receiving {os.path.basename(path)} -- nothing new to send")
+            return
         sid = (int(time.time() * 1000) + 1) & 0xFFFFFFFF
         threading.Thread(target=lambda: terr_jobs.put((sid, path, targets, _terr_read(path))),
                          name="terr-read", daemon=True).start()
@@ -4912,9 +4938,9 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
                     transfer[0].on_peer_dropped(addr)
                 roster_changed()
         # ---- reliable save-transfer feedback (receiver -> host) ---------- #
-        elif t in ("fbegin_ack", "tcp_gave_up", "fack", "fdone") and terr_transfer[0] is not None \
-                and msg.get("sid") == terr_transfer[0].sid:
-            tx = terr_transfer[0]
+        elif t in ("fbegin_ack", "tcp_gave_up", "fack", "fdone") \
+                and any(x.sid == msg.get("sid") for x in terr_streams):
+            tx = next(x for x in terr_streams if x.sid == msg.get("sid"))
             if addr in tx.peers:
                 {"fbegin_ack": tx.on_begin_ack, "tcp_gave_up": tx.on_tcp_gave_up,
                  "fack": tx.on_fack, "fdone": tx.on_fdone}[t](addr, msg)
@@ -5380,7 +5406,7 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
                 last_drop = now
                 frags.expire(now)
                 dead = _keepalive_sweep(peers, now, drop_after,
-                                        (transfer[0], recovery.transfer if recovery else None, terr_transfer[0]), log,
+                                        (transfer[0], recovery.transfer if recovery else None, *terr_streams), log,
                                         exempt=set(pack_job[0]["addrs"]) if pack_job[0] else ())
                 for a in dead:
                     log(f"[host] DROP {a} ({peers[a]['name']}) -- silent")
@@ -5723,40 +5749,50 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
                         _send_data(sock, x, {"t": "status", "state": "connected", "detail": detail})
                     # the host waits too: its panel shows the same pace and time left
                     io.emit({"type": "status", "state": "connected", "detail": f"{job['names']}: {detail}"})
-            # The terrain stream: made once its reader is done, pumped, and
-            # forgotten once every joiner finished, failed or left. A new one
-            # (a later START) replaces it: its joiners' loads are over.
+            # The terrain streams: made once the reader is done, pumped, and
+            # forgotten once every joiner finished, failed or left. A later
+            # START does NOT replace a running one (2026-09-28): the joiner's
+            # game had already opened that file, and a replacement left it
+            # reading a stream that stopped half way, so it computed the
+            # terrain itself -- minutes on a big map. A joiner already
+            # receiving the same file is not sent it again; one receiving
+            # another file moves to the new stream (a new load of its own).
             try:
                 sid_t, path_t, targets_t, read_t = terr_jobs.get_nowait()
             except queue.Empty:
                 read_t = None
             else:
-                live_t = [(a, n) for a, n in targets_t if a in peers]
+                key_t = _terr_key(path_t)
+                live_t = [(a, n) for a, n in targets_t if a in peers and not _terr_streaming(terr_streams, key_t, a)]
                 if read_t is None:
                     log(f"[host] terrain stream: could not read {path_t}")
                 elif live_t:
-                    if terr_transfer[0] is not None:
-                        log(f"[host] terrain stream sid={terr_transfer[0].sid} replaced by a newer START")
-                    terr_transfer[0] = _HostSaveTransfer(
+                    for old in terr_streams:
+                        for a, _n in live_t:
+                            if a in old.peers:
+                                old.on_peer_dropped(a)       # its receiver switches to the new stream
+                    tx = _HostSaveTransfer(
                         sock, sid_t, read_t[0], [{"name": TERR_NAME, "size": len(read_t[0]), "sha256": read_t[1]}],
                         live_t, _QuietIO(io), log, kind="terr", overall_sha=read_t[1])
+                    tx.terr_key = key_t
+                    terr_streams.append(tx)
                     log(f"[host] terrain stream: {os.path.basename(path_t)} ({len(read_t[0]) / 1048576:.1f} MiB) "
                         f"to {', '.join(n for _, n in live_t)} while they load")
                 read_t = None
-            if terr_transfer[0] is not None:
-                tx = terr_transfer[0]
+            for tx in list(terr_streams):
                 try:
                     for a in list(tx.peers):
                         if a not in peers:
                             tx.on_peer_dropped(a)
                     tx.pump(now)
                     if tx.all_resolved():
-                        terr_transfer[0] = None
+                        terr_streams.remove(tx)
                         log(f"[host] terrain stream sid={tx.sid}: {tx.done_count()} of {len(tx.peers)} joiner(s) got it"
                             + (f"; not {', '.join(tx.failed_names())}" if tx.failed_names() else ""))
                 except Exception as e:                     # never crash the lobby: the stream is optional
                     log(f"[host] terrain stream error: {e!r} -- dropped")
-                    terr_transfer[0] = None
+                    if tx in terr_streams:
+                        terr_streams.remove(tx)
             # Pump the save transfer (if any). Once every peer has resolved:
             #   all done (dropped peers don't block) -> start with save=true;
             #   any FAILED -> failed status naming them, NO start, and the
