@@ -1,5 +1,10 @@
 # TpF2 Multiplayer on Linux: install, uninstall, logs
 
+The [dev `528294b1` integration](UPSTREAM_dev_528294b1.md) asks for a
+fresh host save when a late joiner would receive one over two minutes old,
+with fallback if no new save arrives. Host-loop stalls no longer count as
+peer silence. Shared lobby; release remains 0.7.1.2.
+
 The [dev `304a4e28` integration](UPSTREAM_dev_304a4e28.md) adds catch-up progress
 logging about every 20 seconds: remaining gap, closing rate, local and session
 rates, and an ETA when the gap is closing. Shared Lua; release remains 0.7.1.2.

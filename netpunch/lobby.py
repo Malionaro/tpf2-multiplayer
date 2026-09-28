@@ -1568,6 +1568,17 @@ def _keepalive_sweep(peers, now, drop_after, transfers, log, exempt=()):
     return dead
 
 
+LOOP_STALL = 2.0     # s beyond its select timeout one host-loop turn may take before it counts as a stall
+
+
+def _loop_stall(prev, now, timeout):
+    """Seconds the host loop could not listen since ``prev`` (0 for an
+    ordinary turn): the peers are credited that much before the keepalive
+    sweep judges them."""
+    stall = now - prev - timeout
+    return stall if stall > LOOP_STALL else 0.0
+
+
 def _mid_transfer(addr, *transfers):
     """True while ``addr`` is an ACTIVE target of any of the given
     _HostSaveTransfer objects (None entries are skipped). The host's keepalive
@@ -4191,6 +4202,12 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
         return {n: letter_for(n) for n in names}
 
     HOTJOIN_STORED_MAX = 180.0                # a late joiner is served from the stored world when it is this fresh
+    # A HOST's save older than this is not sent to a newcomer: its menu takes a
+    # fresh one first (2026-09-28, user: "make sure saves are new and fresh"). A
+    # joiner on a slow PC closes its gap at ~1 unit/s, so every second of a save's
+    # age is about a second more catching up; a save costs the host one freeze.
+    HOTJOIN_SAVE_MAX_AGE = 120.0
+    fresh_asked = [0.0]                       # when the menu was last asked for a fresh save (once per wait)
     RELAY_MODS_GRACE = 8.0                    # seconds a completed upload waits for the leader's mods round before it goes out
 
     session_epoch = [0.0]                     # when the current session's world left the relay (resume push)
@@ -5253,6 +5270,32 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
 
     last_heal = last_drop = 0.0
     last_serve_check = [0.0]
+
+    def save_age(path):
+        try:
+            return time.time() - os.path.getmtime(path)
+        except OSError:
+            return None
+
+    def ask_fresh_save(why):
+        """Ask the host's menu for a new save (tpf2_sync_save.txt, its SyncPoll);
+        it answers with sync_taking, then a start carrying the file. False when
+        this host cannot (no world, no live join, asked a moment ago)."""
+        now_ = time.time()
+        if relay_only or not recovery or not host_has_world() or not _live_join_on(io.dir):
+            return False
+        if now_ - fresh_asked[0] < 150:
+            return False                      # asked for this wait already: it did not come, send what there is
+        try:
+            with open(os.path.join(str(recovery.runtime.directory), "tpf2_sync_save.txt"), "w") as f:
+                f.write("fresh save\n")
+        except OSError as e:
+            log(f"[host] could not ask the menu for a fresh save: {e}")
+            return False
+        fresh_asked[0] = now_
+        serve_hold[0] = now_ + 120            # the serve-again waits for it (its start lifts the hold)
+        log(f"[host] {why} -- asked the host's menu for a fresh save")
+        return True
     punching = {}                           # (ip, port) a joiner knocked from -> punch until
     relay_binds = {}                        # (ip, port) of a master relay allocation -> (id, bind until)
     last_punch = [0.0]
@@ -5261,6 +5304,7 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
     # The game relay's loopback socket joins the select set so a bridge frame
     # wakes the loop immediately (lockstep latency) instead of on the next tick.
     rlist = [sock] if relay is None else [sock, relay.sock]
+    loop_prev = [time.time()]
     try:
         while not stop.is_set():
             # While a transfer runs, poll fast so we pump chunks + absorb ACKs
@@ -5272,6 +5316,17 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
             except (OSError, ValueError):
                 break
             now = time.time()
+            # OUR STALL IS NOT THEIR SILENCE (2026-09-28): the dedicated server's
+            # lobby stood 19 s reading a 372 MB save while the machine swapped;
+            # the players' pings overflowed the socket meanwhile and the sweep
+            # dropped all three as silent. Time this loop could not listen is
+            # credited to every peer.
+            stall = _loop_stall(loop_prev[0], now, timeout)
+            loop_prev[0] = now
+            if stall:
+                for p in peers.values():
+                    p["last"] = min(now, p["last"] + stall)
+                log(f"[host] the lobby stood {stall:.1f} s -- nobody is counted silent for it")
 
             # Drain up to HOST_DRAIN datagrams this cycle -- a busy transfer can
             # deliver a burst of facks/pings, and one-per-iteration would let the
@@ -5523,8 +5578,13 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
                 waiting = [a for a in peers if not peers[a].get("started")]
                 fresh = (not relay_only) or (0 <= stored_age() <= HOTJOIN_STORED_MAX)
                 if waiting and fresh and os.path.isfile(last_shared[0]) and (not relay_only or leader_addr() not in waiting):
-                    log(f"[host] {len(waiting)} peer(s) waiting for the save -- pushing it again")
-                    begin_save_transfer(last_shared[0])
+                    age = save_age(last_shared[0])
+                    if age is not None and age > HOTJOIN_SAVE_MAX_AGE and ask_fresh_save(
+                            f"{len(waiting)} peer(s) waiting and the last save is {int(age)} s old"):
+                        pass
+                    else:
+                        log(f"[host] {len(waiting)} peer(s) waiting for the save -- pushing it again")
+                        begin_save_transfer(last_shared[0])
             # relay-only: the leader's upload
             if relay_only and upload[0] is not None:
                 u = upload[0]
@@ -5566,7 +5626,15 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
                     begin_save_transfer(path)
             if transfer[0] is None and pending_start[0] is not None:
                 queued, pending_start[0] = pending_start[0], None
-                handle_command(queued)
+                # a hot-join save that waited out another transfer is as old as that
+                # transfer took: past HOTJOIN_SAVE_MAX_AGE the menu takes a new one
+                # (never for a world switch or the first START: those are the host's)
+                age = save_age(queued.get("save")) if queued.get("save") else None
+                if (started[0] and not queued.get("switch") and age is not None and age > HOTJOIN_SAVE_MAX_AGE
+                        and ask_fresh_save(f"the queued save waited {int(age)} s behind another transfer")):
+                    pass
+                else:
+                    handle_command(queued)
             # MOD ROUNDS run on a worker thread, in BATCHES. Zipping ran in this
             # loop until 2026-09-18, as ONE blob: a joiner asking for 314 of a
             # save's 486 Workshop mods (~15 GB) left the host deaf for as long
