@@ -593,3 +593,8 @@ fail. The Steam polling hook defaults to a 2 ms interval while busy;
 native module root, falling back to its data folder when the root file is absent.
 Restart the game after changing these startup flags. Local lab startup was blocked;
 no live saving speedup, polling cost or toolbar appearance is claimed.
+
+The [dev `ac3b4be3` integration](UPSTREAM_dev_ac3b4be3.md) records
+upstream merging the completed Linux ports through `412aeb8e` back into Windows
+history. Its source tree matches the preceding Linux integration; runtime
+behavior and release **0.7.1.1** are unchanged.
