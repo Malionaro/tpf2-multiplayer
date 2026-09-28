@@ -443,7 +443,7 @@ class MidTransfer(unittest.TestCase):
                          sorted([addr, other]))
         # and run_host's loop is that sweep, over both transfer slots
         self.assertIn("_keepalive_sweep(peers, now, drop_after", inspect.getsource(lobby.run_host))
-        self.assertIn("(transfer[0], recovery.transfer if recovery else None, terr_transfer[0])", inspect.getsource(lobby.run_host))
+        self.assertIn("(transfer[0], recovery.transfer if recovery else None, *terr_streams)", inspect.getsource(lobby.run_host))
 
     def test_a_verifier_whose_count_stops_moving_times_out(self):
         """A joiner that has every chunk reports its verify/write count in

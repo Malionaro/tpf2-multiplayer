@@ -165,6 +165,29 @@ class TerrainStream(unittest.TestCase):
         self.assertIsNone(lobby._terr_for_save(str(sav)), "not a sidecar")
         self.assertIsNone(lobby._terr_for_save(str(d / "w.lua")))
 
+    def test_a_second_start_leaves_a_running_stream_alone(self):
+        """A START for a joiner already receiving this sidecar sends nothing new:
+        a replacement left the joiner's game reading a stream that stopped half
+        way, and it computed the terrain itself (2026-09-28)."""
+        d = Path(_TMP.name) / "saves2"
+        d.mkdir(exist_ok=True)
+        terr = d / "w.terr"
+        terr.write_bytes(sidecar(100))
+        key = lobby._terr_key(str(terr))
+        other = ("127.0.0.1", 40002)
+        tx = lobby._HostSaveTransfer(Wire().sock, 77, b"x" * 100, [{"name": lobby.TERR_NAME, "size": 100, "sha256": "0" * 64}],
+                                     [(JOINER, "joiner")], lobby._QuietIO(type("IO", (), {"dir": _TMP.name})()), lambda s: None,
+                                     kind="terr", overall_sha="0" * 64)
+        tx.terr_key = key
+        self.assertTrue(lobby._terr_streaming([tx], key, JOINER), "same file, still sending: leave it")
+        self.assertFalse(lobby._terr_streaming([tx], key, other), "a joiner not in it gets the file")
+        time.sleep(0.02)
+        terr.write_bytes(sidecar(120))                       # saved again under the same name
+        self.assertNotEqual(lobby._terr_key(str(terr)), key)
+        self.assertFalse(lobby._terr_streaming([tx], lobby._terr_key(str(terr)), JOINER), "a new file is a new load")
+        tx.peers[JOINER]["state"] = "done"
+        self.assertFalse(lobby._terr_streaming([tx], key, JOINER), "a finished stream is not held for")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
