@@ -284,6 +284,9 @@ install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_f0212c87.md" "$STAGE/UPSTREAM_dev
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_7111aefb.md" "$STAGE/UPSTREAM_dev_7111aefb.md"
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_568e7ea7.md" "$STAGE/UPSTREAM_dev_568e7ea7.md"
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_d3f199f9.md" "$STAGE/UPSTREAM_dev_d3f199f9.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_893be145.md" "$STAGE/UPSTREAM_dev_893be145.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_d4a11297.md" "$STAGE/UPSTREAM_dev_d4a11297.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_412aeb8e.md" "$STAGE/UPSTREAM_dev_412aeb8e.md"
 for f in LICENSE THIRD_PARTY_NOTICES.md; do [ ! -f "$REPO/$f" ] || install -m 0644 "$REPO/$f" "$STAGE/$f"; done
 printf '%s\n' "$VERSION" >"$STAGE/VERSION"
 
@@ -299,7 +302,7 @@ CXX=$(sed -n 's/^CMAKE_CXX_COMPILER:[A-Z]*=//p' "$BUILD/CMakeCache.txt" | head -
     echo "compiler: ${CXX:-?} inside soldier SDK (version below)"
   fi
   echo "game:     Transport Fever 2, Steam Linux build 35924 (build-id 3a0e156390b0e6f1e372051c24802c8493ae454a)"
-  echo "Lua: Windows dev d3f199f9 (d3f199f9f414b69a5098b11dc3e0ac1028f752c2), release 0.7.1 (exact upstream, including Linux origin replay)"
+  echo "Lua: Windows dev 412aeb8e (412aeb8ecfeff72abd38f246b04be328fbc93b56), release 0.7.1.1 (exact upstream, including Linux origin replay)"
   echo "Bundled Big Maps native source: imported 4769cd3; see BIGMAP_PORT.md for limits"
   if [ -n "$BIGMAP_REPO" ]; then echo "Big Maps: $BIGMAP_REPO $(git -C "$BIGMAP_REPO" rev-parse HEAD) (working tree built)"; fi
   echo "libraries: ${LIBS[*]}"

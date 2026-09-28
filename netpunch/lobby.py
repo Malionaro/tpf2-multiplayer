@@ -3423,7 +3423,7 @@ def _clear_stale_incoming(directory, log=_log):
 # --------------------------------------------------------------------------- #
 # PUBLISH: the OpenTTD-style public list (netpunch/masterserver.py)
 # --------------------------------------------------------------------------- #
-LOBBY_VERSION = "0.7.1"
+LOBBY_VERSION = "0.7.1.1"
 
 
 def version_rejection(remote):
@@ -6291,7 +6291,7 @@ def cmd_host(args):
         if args.relay_only:
             _log("[host] RELAY-ONLY: no game here; the oldest joiner is the leader")
         else:
-            _publish_registry_at_start(_log)
+            _publish_registry_at_start(_log, dedicated=bool(getattr(args, "dedicated", False)))
         run_host(sock, args.name, io, code=code, relay=None if args.relay_only else relay,
                  forward_logs=args.forward_log or (), publisher=publisher,
                  lobby_name=args.lobby_name, relay_only=bool(args.relay_only),
@@ -8177,14 +8177,21 @@ def _workshop_rows(mods, lookup):
     return rows
 
 
-def _publish_registry_at_start(log):
+def _publish_registry_at_start(log, dedicated=False):
     """Rewrite the Workshop registry from what is on disk now, keeping its
     token, so the NEXT game start registers every consented download even if
-    the round that fetched it never reached its last batch."""
+    the round that fetched it never reached its last batch.
+
+    A dedicated server registers every mod in its managed Workshop folder: it
+    loads its world by itself (dedicated_save) before any mod list reaches this
+    lobby, and its Steam client is offline, so a Workshop mod the operator put
+    there is only known to the game through this registry. Scoped to "no save
+    yet", the server's world load was refused for a missing mod on every start
+    (2026-09-27, a save needing Extended Gameplay Two)."""
     try:
         # no save yet: register nothing beyond it; the save's own mods are
         # scoped in when its mod list arrives (_publish_rows / start(save))
-        modshare.set_registry_scope(())
+        modshare.set_registry_scope(None if dedicated else ())
         modshare.write_registry()
         rows = modshare.read_registry()[1]
         if rows:
