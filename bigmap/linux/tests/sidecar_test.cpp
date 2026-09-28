@@ -91,7 +91,7 @@ int main() {
     auto bad = Id("../x"); assert(linux_sidecar::SavPath(&bad).empty());
 
     // Alternate two persistent loader workers in separate grid halves. Shared
-    // cursors need ~half a grid per lookup; TLS needs N + N/2 probes total.
+    // cursors need ~half a grid per lookup; outward TLS stays within 2N total.
     {
         constexpr int count = 480, half = count / 2;
         alignas(8) uint8_t grid[0x18]{};
@@ -127,7 +127,36 @@ int main() {
         reload.store(true);
         a.join(); b.join();
         printf("two native lookup threads: %llu probes for %d tiles\n", (unsigned long long)(totals[0] + totals[1]), count);
-        assert(totals[0] + totals[1] == count + half);
+        assert(totals[0] + totals[1] <= 2 * count);
+        // Descending order starts at the initial hint itself, then takes two
+        // probes per tile. A forward-only cursor would cost nearly N squared.
+        std::thread([&] {
+            uint64_t total = 0;
+            for (int i = count - 1; i >= 0; --i) {
+                uint32_t probes;
+                assert(linux_sidecar::FindRecord(g, 1000 + i, &probes) == i);
+                total += probes;
+            }
+            printf("descending native lookup: %llu probes for %d tiles\n", (unsigned long long)total, count);
+            assert(total == 3 * count - 2);
+        }).join();
+        // Exhaust every start/target pair in small odd/even grids, including
+        // repeated hits, wraparound, the opposite point, misses and n=1.
+        for (int n = 1; n <= 9; ++n) {
+            *reinterpret_cast<int32_t*>(grid + 8) = n;
+            for (int from = 0; from < n; ++from) {
+                for (int to = 0; to < n; ++to) {
+                    uint32_t probes;
+                    assert(linux_sidecar::FindRecord(g, 1000 + from) == from);
+                    assert(linux_sidecar::FindRecord(g, 1000 + to, &probes) == to);
+                    const int up = (to - from + n) % n, down = (from - to + n) % n;
+                    const int expected = up == 0 ? n : up <= down ? 2 * up - 1 : 2 * down;
+                    assert(probes == uint32_t(expected));
+                    assert(linux_sidecar::FindRecord(g, -1, &probes) == -1 && probes == uint32_t(n));
+                }
+            }
+        }
+        *reinterpret_cast<int32_t*>(grid + 8) = count;
         uint32_t probes;
         assert(linux_sidecar::FindRecord(g, 1479, &probes) == 479);
         assert(linux_sidecar::FindRecord(g, 1000, &probes) == 0 && probes == 1);
@@ -157,6 +186,8 @@ int main() {
     // 2. A full load: every tile restored, the pass skipped, min/max/version as publication.
     f.Clear();
     Load(f, id, N);
+    assert(linux_sidecar::Lookups().calls.load() == N);
+    assert(linux_sidecar::Lookups().probes.load() == N);
     for (int i = 0; i < N; ++i) assert(f.heights[i] == want[i]);
     assert(Pass(f));
     for (int i = 0; i < N; ++i) {

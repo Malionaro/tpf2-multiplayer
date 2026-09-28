@@ -221,33 +221,37 @@ inline void* PickTerrain(char* why, size_t cap) {
     }
     return best;
 }
-// The record AddTile just filled, scanning from THIS thread's last hit in this
-// grid: the load adds tiles on two threads in different parts of the grid, and
-// one shared cursor made every scan start where the other thread had been
-// (Windows 2026-09-28: ~30,000 probes per tile; see terrain_serve.h FindRecord).
+// Search outward from this thread's last hit: ascending and descending loads
+// both stay nearby, whereas a forward-only scan wraps the grid on every descent.
 inline std::atomic<uint64_t>& CursorGeneration() { static std::atomic<uint64_t> gen{0}; return gen; }
-// Optional probe count supports regression measurement without shared hot-loop atomics.
+struct LookupStats { std::atomic<uint64_t> calls{0}, probes{0}; };
+inline LookupStats& Lookups() { static LookupStats s; return s; }
+// Count locally; production accounting adds once per lookup, never per probe.
 inline long FindRecord(const TerrainSidecar::Grid& g, int entity, uint32_t* probes = nullptr) {
-    struct Cursor { const uint8_t* grid; uint32_t next; uint64_t generation; };
+    struct Cursor { const uint8_t* grid; uint32_t last; uint64_t generation; };
     static thread_local Cursor c = {nullptr, 0, 0};
     if (probes) *probes = 0;
     const uint32_t n = g.nx() > 0 && g.ny() > 0 ? uint32_t(g.nx()) * uint32_t(g.ny()) : 0;
     if (!n) return -1;
     const uint64_t gen = CursorGeneration().load(std::memory_order_relaxed);
-    if (c.grid != g.base || c.generation != gen) { c.grid = g.base; c.next = 0; c.generation = gen; }
-    const uint32_t start = c.next % n;
-    for (uint32_t k = 0; k < n; ++k) {
-        uint32_t i = start + k; if (i >= n) i -= n;
+    if (c.grid != g.base || c.generation != gen) { c.grid = g.base; c.last = n - 1; c.generation = gen; }
+    auto is = [&](uint32_t i) {
+        if (probes) ++*probes;
         const uint8_t* r = g.record(i);
-        if (*reinterpret_cast<const int32_t*>(r) == entity && *reinterpret_cast<uint8_t* const*>(r + 8)) {
-            if (probes) *probes = k + 1;
-            c.next = i + 1 < n ? i + 1 : 0;
-            return long(i);
-        }
+        return *reinterpret_cast<const int32_t*>(r) == entity && *reinterpret_cast<uint8_t* const*>(r + 8);
+    };
+    const uint32_t last = c.last % n;
+    // Each non-center record exactly once, including the opposite point of an
+    // even ring. Checking the center last also handles a one-record grid.
+    for (uint32_t d = 1; d <= n / 2; ++d) {
+        const uint32_t up = last + d < n ? last + d : last + d - n;
+        const uint32_t down = last >= d ? last - d : last + n - d;
+        if (is(up)) { c.last = up; return long(up); }
+        if (down != up && is(down)) { c.last = down; return long(down); }
     }
-    if (probes) *probes = n;
-    return -1;
+    return is(last) ? long(last) : -1;
 }
+
 inline void AddTileHook(void* terrain, int entity, uint64_t a, uint64_t b, uint64_t c, uint64_t d) {
     OriginalAddTile()(terrain, entity, a, b, c, d);
     if (!Enabled().load() || !terrain) return;
@@ -260,7 +264,10 @@ inline void AddTileHook(void* terrain, int entity, uint64_t a, uint64_t b, uint6
     if (!TerrainSidecar::Loaded() && !TerrainSidecar::TryStream(terrain)) return;
     const TerrainSidecar::Grid g = TerrainSidecar::GridOf(terrain);
     if (!g.base || !g.records()) return;
-    const long idx = FindRecord(g, entity);
+    uint32_t probes = 0;
+    const long idx = FindRecord(g, entity, &probes);
+    Lookups().calls.fetch_add(1, std::memory_order_relaxed);
+    Lookups().probes.fetch_add(probes, std::memory_order_relaxed);
     if (idx < 0) return;
     if (!TerrainSidecar::Has(uint32_t(idx))) {
         TerrainSidecar::RefreshIfDue();              // a stream: maybe it has arrived since
@@ -367,6 +374,8 @@ inline void* LoadHook(void* ret, void* ctx, void* mods, const SaveGameId* id, vo
     if (!Enabled().load()) return OriginalLoad()(ret, ctx, mods, id, a4, a5, s0, s1, s2, s3, s4);
     // Worker threads can survive loads and the allocator can reuse grid addresses.
     CursorGeneration().fetch_add(1, std::memory_order_relaxed);
+    Lookups().calls.store(0, std::memory_order_relaxed);
+    Lookups().probes.store(0, std::memory_order_relaxed);
     ForgetTerrains();
     S().Reset();
     TerrainSidecar::EndApply();
@@ -466,6 +475,9 @@ inline void PassDone(size_t blocks, bool skipped) {
     // A stream first arriving after this load pass must never overwrite play edits.
     TerrainSidecar::g_streamWanted = false;
     const uint32_t applied = [] { Served& s = S(); std::lock_guard<std::mutex> l(s.m); uint32_t a = 0; for (auto& g : s.grids) a += g.applied; return a; }();
-    if (TerrainSidecar::EndApply() && Log()) Log()("terrain sidecar: load done, %u tiles applied from the sidecar; file released", applied);
+    const uint64_t calls = Lookups().calls.load(std::memory_order_relaxed);
+    const uint64_t probes = Lookups().probes.load(std::memory_order_relaxed);
+    if (TerrainSidecar::EndApply() && Log()) Log()("terrain sidecar: load done, %u tiles applied from the sidecar, %.1f record probes per AddTile lookup; file released",
+        applied, calls ? double(probes) / double(calls) : 0.0);
 }
 }  // namespace linux_sidecar

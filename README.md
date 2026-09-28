@@ -493,3 +493,8 @@ has no native effect. Release remains 0.7.1.1.
 The [dev `5fd49a24` integration](docs/linux/UPSTREAM_dev_5fd49a24.md) gives
 native terrain-sidecar lookups a cursor per thread, reset for each load and
 grid. Sidecars remain experimental and default off; no live speedup is claimed.
+
+The [dev `26564158` integration](docs/linux/UPSTREAM_dev_26564158.md) searches
+outward from each native terrain-sidecar worker's last hit and reports probes
+per lookup at load completion. Sidecars remain experimental and default off;
+fixture probe counts do not establish a live load-time improvement.
