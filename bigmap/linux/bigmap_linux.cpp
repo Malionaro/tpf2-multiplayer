@@ -412,6 +412,8 @@ int Tpf2mpPluginInit(const Tpf2mpHost* host,Tpf2mpPluginInfo* info) {
         TerrainSidecar::g_writeThreads=H->cfgInt(Section,"terrain_sidecar_threads",0);
         if(H->cfgBool(Section,"terrain_stream",1) && H->dataDir)TerrainSidecar::SetStreamDir(H->dataDir());
         TerrainSidecar::g_readLocal=H->cfgBool(Section,"terrain_sidecar_read_local",1);
+        // sidecarOn already requires the verified pass redirect, even without batching.
+        linux_sidecar::ServeAtPass()=H->cfgBool(Section,"terrain_sidecar_decode_at_pass",1);
         // Publish each trampoline directly before its entry patch becomes visible.
         // Until all three succeed, callbacks forward without sidecar activity.
         const bool hooked=sites &&

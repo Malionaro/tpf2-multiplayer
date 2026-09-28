@@ -9,18 +9,20 @@
 #include <cstdlib>
 #include <cstring>
 #include <thread>
+#include <type_traits>
 #include <sys/mman.h>
 #include "../sidecar_linux.h"
 
 namespace {
 constexpr int NX = 3, NY = 2, N = NX * NY;
-struct Fake {
+template<int X, int Y> struct FakeGrid {
+    static constexpr int NX = X, NY = Y, N = X * Y;
     uint8_t terrain[0x40]{};
     uint8_t grid[0x18]{};
     uint8_t records[N * 40]{};
     TerrainSidecar::TileVector vec[N]{};
     std::vector<uint16_t> heights[N];
-    Fake() {
+    FakeGrid() {
         *reinterpret_cast<uint8_t**>(terrain + 0x18) = grid;
         *reinterpret_cast<float*>(terrain + 0x34) = 0.5f;
         int32_t g[4] = {10, 20, NX, NY};
@@ -43,6 +45,8 @@ struct Fake {
     int32_t Version(int i) const { return *reinterpret_cast<const int32_t*>(records + i * 40 + 0x20); }
 };
 
+using Fake = FakeGrid<NX, NY>;
+
 std::string g_dir;
 std::string g_savContent = "save v1";
 int g_logs = 0;
@@ -61,11 +65,11 @@ linux_sidecar::SaveGameId Id(const char* name) {
     id.name.p = name; id.name.n = strlen(name);
     return id;
 }
-void Load(Fake& f, const linux_sidecar::SaveGameId& id, int tiles) {
+template<class Terrain> void Load(Terrain& f, const linux_sidecar::SaveGameId& id, int tiles) {
     linux_sidecar::LoadHook(nullptr, nullptr, nullptr, &id, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
     for (int i = 0; i < tiles; ++i) linux_sidecar::AddTileHook(f.terrain, 1000 + i, 0, 0, 0, 0);
 }
-bool Pass(Fake& f, size_t blocks = 4096) {
+template<class Terrain> bool Pass(Terrain& f, size_t blocks = 4096) {
     void* self[2] = {nullptr, f.terrain};
     const bool skipped = linux_sidecar::SkipPass(self, blocks);
     linux_sidecar::PassDone(blocks, skipped);
@@ -450,7 +454,68 @@ int main() {
         TerrainSidecar::g_readLocal = true;
     }
 
-    // 9. Writing off: a save leaves no sidecar.
+    // Deferred decoding, both below and above CatchUp's 64-tile worker threshold.
+    auto deferred = [&](auto& terrain) {
+        using Grid = std::decay_t<decltype(terrain)>;
+        constexpr int count = Grid::N;
+        linux_sidecar::ForgetTerrains();
+        g_savContent = "save deferred " + std::to_string(count);
+        terrain.Fill(13);
+        linux_sidecar::WriteOn() = true;
+        linux_sidecar::AddTileHook(terrain.terrain, 1000, 0, 0, 0, 0);
+        linux_sidecar::SaveHook(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &id, 0, nullptr);
+        std::vector<uint16_t> want5[count];
+        for (int i = 0; i < count; ++i) want5[i] = terrain.heights[i];
+        linux_sidecar::ServeAtPass() = true;
+        Grid v2;
+        // Repeat with the same terrain addresses: finished identities must reset.
+        for (int load = 0; load < 2; ++load) {
+            terrain.Clear(); v2.Clear();
+            const int firstVersion = terrain.Version(0), secondVersion = v2.Version(0);
+            Load(terrain, id, count);
+            for (int i = 0; i < count; ++i) linux_sidecar::AddTileHook(v2.terrain, 1000 + i, 0, 0, 0, 0);
+            assert(TerrainSidecar::Loaded() && linux_sidecar::VersionPending());
+            assert(linux_sidecar::Lookups().calls.load() == 0);
+            for (int i = 0; i < count; ++i)
+                assert(terrain.heights[i] != want5[i] && v2.heights[i] != want5[i]);
+            assert(!Pass(terrain, 100) && TerrainSidecar::Loaded());
+            assert(terrain.heights[0] != want5[0]);
+            assert(Pass(terrain) && TerrainSidecar::Loaded()); // second has no range slot yet
+            assert(linux_sidecar::VersionPending());
+            assert(v2.heights[0] != want5[0]);
+            assert(!linux_sidecar::AllServedFinish(terrain.terrain));
+            assert(Pass(v2) && !TerrainSidecar::Loaded());
+            assert(!linux_sidecar::VersionPending());
+            for (int i = 0; i < count; ++i) {
+                assert(terrain.heights[i] == want5[i] && v2.heights[i] == want5[i]);
+                const auto mm = std::minmax_element(want5[i].begin(), want5[i].end());
+                for (auto* t : {&terrain, &v2}) {
+                    assert(t->MinZ(i) == float(*mm.first) * 0.5f);
+                    assert(t->MaxZ(i) == float(*mm.second) * 0.5f);
+                }
+                assert(terrain.Version(i) == firstVersion + 1 && v2.Version(i) == secondVersion + 1);
+            }
+            assert(!Pass(terrain) && !Pass(v2));
+        }
+        // Missing destination: the pass must run and release the file without
+        // publishing partial ranges or version bumps.
+        terrain.Clear();
+        Load(terrain, id, count);
+        const int before = terrain.Version(0);
+        *reinterpret_cast<void**>(terrain.records + (count - 1) * 40 + 8) = nullptr;
+        assert(!Pass(terrain) && !TerrainSidecar::Loaded());
+        assert(terrain.Version(0) == before);
+        *reinterpret_cast<void**>(terrain.records + (count - 1) * 40 + 8) = &terrain.vec[count - 1];
+        linux_sidecar::ServeAtPass() = false;
+        linux_sidecar::ForgetTerrains();
+    };
+    deferred(f);
+    {
+        FakeGrid<9, 8> parallel;
+        deferred(parallel);
+    }
+
+    // 8. Writing off: a save leaves no sidecar.
     linux_sidecar::WriteOn() = false;
     const auto other = Id("Other");
     linux_sidecar::SaveHook(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &other, 0, nullptr);
