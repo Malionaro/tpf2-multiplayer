@@ -661,3 +661,15 @@ No native implementation or setting changes in this integration. Native
 material-index acceleration/probing gaps above and experimental default-off
 sidecars remain unchanged; no native timing or tile-hash result is implied.
 See [integration and validation](../../../docs/linux/UPSTREAM_dev_7bace802.md).
+
+## Windows commit threshold (dev 0eb9eea2)
+
+Windows lowers the automatic threshold from 2..4 to 2..3 GiB, with a 3 GiB
+fallback when installed RAM is unknown; positive `commit_tight_mb` still
+wins. This supersedes the Windows numbers in the b6d73041 entry above.
+Native terrain paging continues to use `MemAvailable`, RAM/7 headroom bounded
+to 2..12 GiB and a RAM/4 resident cap bounded to 4..8 GiB. The Windows change
+adjusts neither of those native quantities. No new Linux setting or hook is
+needed; inherited commit-controller/material-pager differences remain.
+See [integration](../../../docs/linux/UPSTREAM_dev_0eb9eea2.md) and
+[source review](../../../docs/re/linux/DEV_0EB9EEA2.md).

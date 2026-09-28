@@ -522,3 +522,8 @@ tools. Native runtime behavior and release 0.7.1.1 are unchanged.
 The [dev `7bace802` integration](docs/linux/UPSTREAM_dev_7bace802.md) retains Windows load-speed
 findings, including the rejected material-index chunk-size experiment. These
 are upstream measurements; native runtime behavior and release 0.7.1.1 are unchanged.
+
+The [dev `0eb9eea2` integration](docs/linux/UPSTREAM_dev_0eb9eea2.md) lowers Windows’ automatic
+free-commit threshold to 2..3 GiB (unknown RAM: 3 GiB). Native terrain paging
+retains its existing `MemAvailable` policy; `commit_tight_mb` has no native
+effect. Release remains 0.7.1.1.
