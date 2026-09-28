@@ -1,7 +1,7 @@
 # TpF2 Multiplayer — Transport Fever 2 multiplayer mod
 
-Current release integration: **0.7.1.1**, Windows dev `2b8505c7`; see the
-[integration and validation record](docs/linux/UPSTREAM_dev_2b8505c7.md). All peers, including dedicated
+Current release integration: **0.7.1.1**, Windows dev `2b4fd093`; see the
+[integration and validation record](docs/linux/UPSTREAM_dev_2b4fd093.md). All peers, including dedicated
 servers, must update. Existing native Sandbox town-tool capture, minimap and
 cargo-filter limitations remain. Upstream performance measurements were not
 repeated locally; matching release numbers do not establish gameplay parity.
@@ -41,7 +41,8 @@ adds native terrain pager recency, automatic memory headroom and fault-rate
 logging; loaded-big-map performance validation remains outstanding.
 The Windows MSI instructions below apply to the Windows version.
 The subsequent [dev `60d237c5` integration](docs/linux/UPSTREAM_dev_60d237c5.md)
-retains the Windows autosave-sidecar fix; native terrain sidecars remain unported.
+retains the Windows autosave-sidecar fix; native terrain sidecars are now available experimentally, default off, in
+[dev `2b4fd093`](docs/linux/UPSTREAM_dev_2b4fd093.md). Live lifetime validation remains blocked.
 
 ## How it works
 

@@ -1,7 +1,7 @@
 # TpF2 Multiplayer on Linux: install, uninstall, logs
 
-Current release integration: **0.7.1.1**, Windows dev `2b8505c7`; see the
-[integration and validation record](UPSTREAM_dev_2b8505c7.md). All peers, including dedicated
+Current release integration: **0.7.1.1**, Windows dev `2b4fd093`; see the
+[integration and validation record](UPSTREAM_dev_2b4fd093.md). All peers, including dedicated
 servers, must update. Existing native Sandbox town-tool capture, minimap and
 cargo-filter limitations remain. Upstream performance measurements were not
 repeated locally; matching release numbers do not establish gameplay parity.
@@ -618,3 +618,11 @@ The [dev `fdfb79e8` integration](UPSTREAM_dev_fdfb79e8.md) retains
 Windows range tracking for multiple terrain versions. Native sidecar serving
 and alignment bypass remain unported after fresh static analysis and a lab
 startup failure; native alignment behavior is unchanged.
+
+The [dev `2b4fd093` integration](UPSTREAM_dev_2b4fd093.md) adds experimental
+native terrain sidecar capture/serving and a complete-grid alignment bypass.
+This supersedes the historical implementation-absence statements above.
+`terrain_sidecar=0` remains the native default because live terrain lifetime and
+load completion are unverified. `terrain_sidecar=1` enables lab trials, with
+`terrain_sidecar_write=1` and `terrain_sidecar_threads=0` (automatic, at most 8).
+The current lab fails before game startup; no save/load speedup is claimed.

@@ -578,3 +578,27 @@ Windows now retains ranges for up to four grids. Native runtime sidecar serving
 and alignment bypass remain absent; this change has no native runtime effect.
 Fresh ELF analysis and a blocked lab launch are recorded in
 [the investigation](../../../docs/re/linux/DEV_FDFB79E8.md).
+
+## Terrain sidecar (dev 2b4fd093, experimental, default off)
+
+This supersedes the implementation-absence statements in the historical sections
+above. Live ownership/completion proof remains missing; see
+[the integration evidence](../../../docs/re/linux/DEV_2B4FD093.md).
+
+`sidecar_linux.h` brings the Windows terrain sidecar (`../src/terrain_sidecar.h`, same file format) to build 35924. When explicitly enabled, every eligible save writes `<save>.terr` beside `<save>.sav`, and a load of that same save (fingerprint = hash of the `.sav`) restores each tile at AddTile and skips the alignment pass when every tile of the terrain was served. The records' minZ/maxZ are then written from the ranges noted at AddTile times the height scale, and each version is bumped, as publication does. A partial sidecar is applied and then overwritten by the stock pass, which gives the stock result.
+
+| Site | RVA | Use |
+|---|---|---|
+| AddTile | `0xcf71d0` (steal 13, near stub) | apply the served tile after the original |
+| record index | `0xcf73f2` | `(x-x0)+(y-y0)*nx`, 40-byte records |
+| SaveGame | `0xc7ec00` (steal 24) | capture to `.terr.tmp` at entry, fingerprint and rename after |
+| SaveGame id checks | `0xc7ec2a`, `0xc7ec5c`, `0xc7ec95` | id is the first stack argument; path empty; name at +0x20 |
+| LoadGame | `0xc7ca40` (steal 24) | arm the sidecar for the save's fingerprint |
+| publication | `0xcf5805`, `0xcf58ad` | scale at CTerrain+0x34; minZ +0x18, maxZ +0x1c, version +0x20 |
+| pass call | `0x173e443` | the redirect used for batching; now installed whenever the sidecar is on |
+
+cfg: `terrain_sidecar` (0; opt in for lab trials), `terrain_sidecar_write` (1), `terrain_sidecar_threads` (0 = CPUs−1, at most 8). A mismatch at any site disables the sidecar and leaves stock loading. `tests/sidecar_test.cpp` covers the flow end to end on a fake terrain: save, full load and skip, a partial load, a missing tile, a small pass, a changed save, orphan sweep, and writing turned off.
+
+Partial hook installation leaves installed callbacks forwarding only, with no
+sidecar writes, reads or pass bypass. The three trampolines are published through
+the host before their respective entry jumps become visible.
