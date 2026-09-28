@@ -615,3 +615,12 @@ experimental and default off: the lab failed before game execution, so no
 native two-pass gameplay or timing result is claimed. See
 [integration](../../../docs/linux/UPSTREAM_dev_5b817efb.md) and
 [evidence](../../../docs/re/linux/DEV_5B817EFB.md).
+
+## Windows commit threshold (dev b6d73041)
+
+Windows now clamps its automatic free-commit threshold to 2..4 GiB (unknown
+RAM: 4 GiB); positive `commit_tight_mb` overrides it. This is separate from
+physical-memory headroom. Native terrain paging retains RAM/7 headroom bounded
+to 2..12 GiB and a RAM/4 cap bounded to 4..8 GiB, using `MemAvailable` without
+swap. `commit_tight_mb` has no native effect. Native UFFD restores do not wait
+on a commit-tight throttle. See [source evidence](../../../docs/re/linux/DEV_B6D73041.md).

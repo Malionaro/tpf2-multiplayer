@@ -648,3 +648,8 @@ adds `terrain_sidecar_read_local=0` for stream-only testing when both peers can
 see the host's save folder. The default is 1; native sidecars remain experimental
 and require `terrain_sidecar=1`. With local reads and `terrain_stream` both off,
 the normal terrain computation runs. This switch does not disable sidecar writes.
+
+The [dev `b6d73041` integration](UPSTREAM_dev_b6d73041.md) retains Windows’
+4 GiB maximum automatic free-commit threshold and `commit_tight_mb` override.
+Native terrain paging continues to use `MemAvailable`; this Windows setting
+has no native effect. Release remains 0.7.1.1.

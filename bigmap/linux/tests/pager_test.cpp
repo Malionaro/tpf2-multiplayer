@@ -18,6 +18,12 @@ int main(){
     assert(TerrainTarget(0,16*GiB,0,12*GiB,GiB)==GiB);
     assert(TerrainTarget(32*GiB,UINT64_MAX,0,12*GiB,GiB)==GiB);
     assert(TerrainTarget(16*GiB,16*GiB,0,12*GiB,GiB)==4*GiB);
+    // dev b6d73041: a large machine with ample available RAM keeps its cap.
+    // Windows free-commit thresholds do not change Linux physical headroom.
+    assert(TerrainTarget(94*GiB,33*GiB,0,12*GiB,GiB)==8*GiB);
+    assert(TerrainTarget(94*GiB,12*GiB,8*GiB,12*GiB,GiB)==8*GiB);
+    assert(TerrainTarget(94*GiB,10*GiB,8*GiB,12*GiB,GiB)==6*GiB);
+    assert(TerrainTarget(94*GiB,4*GiB,8*GiB,12*GiB,GiB)==0);
     // dev 2b8505c: pressure releases only the shortfall, not a flat 256 MiB.
     // Linux uses MemAvailable and its existing RAM reserve, not Windows commit.
     constexpr uint64_t MiB=1ull<<20, reserve=32*GiB/7;
