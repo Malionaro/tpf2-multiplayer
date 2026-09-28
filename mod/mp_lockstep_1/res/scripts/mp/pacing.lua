@@ -984,6 +984,7 @@ function CM.catchUpTick(now, s)
 		if behind > K.CATCHUP_MIN then
 			CM.catchingUp2 = true
 			CM.cuSince, CM.cuFrom, CM.cuAsks = CM.ticks, now, 1
+			CM.cuRate = nil
 			if CM.lgFetchedFrom and now >= CM.lgFetchedFrom - 1e-6 then
 				-- straight out of the load gate: its feed (everything after the save's
 				-- stamp) is this history, and we have been listening since -- asking
@@ -1045,7 +1046,23 @@ function CM.catchUpTick(now, s)
 		CM.catchingUp2 = false; CM.cuPhase = nil
 		CM.pidHold, CM.pidI, CM.pidLastE, CM.pidFar, CM.pidRecover = nil, 0, nil, nil, nil
 		log(string.format("CATCHUP: %.1f unit(s) behind the leader -- ordinary pacing from here", behind))
+		CM.cuRate = nil
 		return nil
+	end
+	-- HOW FAST, every ~20 s (2026-09-28): a slow PC closed a 580-unit gap at 1.1
+	-- units/s, and nothing said whether its own game or the session was the limit.
+	-- Own rate = what this game ran; closing = own minus the session's.
+	local wall = os.time()
+	local r = CM.cuRate
+	if not r then
+		CM.cuRate = {wall = wall, now = now, behind = behind}
+	elseif wall - r.wall >= 20 then
+		local dt = wall - r.wall
+		local own, closing = (now - r.now) / dt, (r.behind - behind) / dt
+		log(string.format("CATCHUP: %.1f unit(s) behind, closing %.2f/s (this game %.2f/s at %gx, the session %.2f/s)%s",
+			behind, closing, own, speed, own - closing,
+			closing > 0.05 and string.format(" -- ~%d s to go", math.floor(behind / closing)) or ""))
+		CM.cuRate = {wall = wall, now = now, behind = behind}
 	end
 	return speed
 end
