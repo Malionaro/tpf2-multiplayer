@@ -602,3 +602,16 @@ cfg: `terrain_sidecar` (0; opt in for lab trials), `terrain_sidecar_write` (1), 
 Partial hook installation leaves installed callbacks forwarding only, with no
 sidecar writes, reads or pass bypass. The three trampolines are published through
 the host before their respective entry jumps become visible.
+
+## Two-version sidecar release (dev 5b817efb)
+
+The native pass now reports whether it skipped. A skipped pass keeps the file
+while another tracked grid is unfinished; a completed grid cannot skip twice.
+A load-sized pass that runs still releases the file. The native fixture covers
+a partially served second grid, its remaining AddTiles after the first pass,
+independent min/max publication and one-time version increments.
+No new game sites, offsets or ABI assumptions were introduced. Sidecars remain
+experimental and default off: the lab failed before game execution, so no
+native two-pass gameplay or timing result is claimed. See
+[integration](../../../docs/linux/UPSTREAM_dev_5b817efb.md) and
+[evidence](../../../docs/re/linux/DEV_5B817EFB.md).

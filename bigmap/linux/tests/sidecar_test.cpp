@@ -66,7 +66,7 @@ void Load(Fake& f, const linux_sidecar::SaveGameId& id, int tiles) {
 bool Pass(Fake& f, size_t blocks = 4096) {
     void* self[2] = {nullptr, f.terrain};
     const bool skipped = linux_sidecar::SkipPass(self, blocks);
-    linux_sidecar::PassDone(blocks);
+    linux_sidecar::PassDone(blocks, skipped);
     return skipped;
 }
 }  // namespace
@@ -158,15 +158,46 @@ int main() {
     assert(!linux_sidecar::LastTerrain() && !TerrainSidecar::Loaded() && !Pass(f));
     linux_sidecar::Enabled().store(true);
 
-    // Both terrain versions keep independent served ranges before completion.
-    Fake second;
-    Load(f, id, N);
-    for (int i = 0; i < N; ++i) linux_sidecar::AddTileHook(second.terrain, 1000 + i, 0, 0, 0, 0);
-    assert(linux_sidecar::AllServedFinish(f.terrain));
-    assert(linux_sidecar::AllServedFinish(second.terrain));
-    linux_sidecar::PassDone(4096);
+    // 8. Two terrain versions, as a real load builds: the first skip keeps the
+    //    file for the second, both skip, and neither skips twice.
+    {
+        g_savContent = "save v3";
+        f.Fill(7);
+        // Disabled forwarding above cleared LastTerrain; recapture on activation.
+        linux_sidecar::AddTileHook(f.terrain, 1000, 0, 0, 0, 0);
+        linux_sidecar::WriteOn() = true;
+        linux_sidecar::SaveHook(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &id, 0, nullptr);
+        Fake second;
+        f.Clear();
+        Load(f, id, N);
+        for (int i = 0; i < N; ++i) linux_sidecar::AddTileHook(second.terrain, 1000 + i, 0, 0, 0, 0);
+        const int32_t v0 = f.Version(0);
+        assert(Pass(f) && TerrainSidecar::Loaded() && f.Version(0) == v0 + 1);
+        assert(!Pass(f) && TerrainSidecar::Loaded() == false);   // the same version again: runs (and a pass that runs releases)
+        f.Clear(); second.Clear();
+        Load(f, id, N);
+        // The second version is only partly served when the first passes.
+        linux_sidecar::AddTileHook(second.terrain, 1000, 0, 0, 0, 0);
+        assert(linux_sidecar::VersionPending());
+        assert(Pass(f) && TerrainSidecar::Loaded());
+        assert(linux_sidecar::VersionPending());
+        const int32_t firstDone = f.Version(0);
+        assert(!linux_sidecar::AllServedFinish(f.terrain));
+        assert(f.Version(0) == firstDone);
+        for (int i = 1; i < N; ++i) linux_sidecar::AddTileHook(second.terrain, 1000 + i, 0, 0, 0, 0);
+        for (int i = 0; i < N; ++i) assert(second.heights[i] == f.heights[i]);
+        const int32_t secondBefore = second.Version(0);
+        assert(Pass(second) && !TerrainSidecar::Loaded());
+        assert(second.Version(0) == secondBefore + 1);
+        assert(!linux_sidecar::VersionPending());
+        for (int i = 0; i < N; ++i) {
+            assert(second.MinZ(i) == f.MinZ(i));
+            assert(second.MaxZ(i) == f.MaxZ(i));
+        }
+        assert(!Pass(f) && !Pass(second));
+    }
 
-    // 8. Writing off: a save leaves no sidecar.
+    // 9. Writing off: a save leaves no sidecar.
     linux_sidecar::WriteOn() = false;
     const auto other = Id("Other");
     linux_sidecar::SaveHook(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &other, 0, nullptr);
