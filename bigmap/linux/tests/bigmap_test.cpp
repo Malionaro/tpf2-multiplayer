@@ -155,6 +155,11 @@ int main(){
     assert(Tpf2mpPluginInit(&host,&info)==0 && sidecarOn && alignmentBatch==0);
     assert(memory[0x173e443][0]==0xe8);
     assert((sidecarHooks==std::vector<uintptr_t>{0xcf71d0,0xc7ec00,0xc7ca40}));
+    assert(TerrainSidecar::g_readLocal);
+    Reset();config["terrain_sidecar"]=1;config["terrain_sidecar_read_local"]=0;
+    assert(Tpf2mpPluginInit(&host,&info)==0 && sidecarOn && !TerrainSidecar::g_readLocal);
+    Reset();config["terrain_sidecar"]=1;
+    assert(Tpf2mpPluginInit(&host,&info)==0 && TerrainSidecar::g_readLocal);
     for(uintptr_t site:{0xcf71d0,0xcf73f2,0xc7ec00,0xc7ca40,0xc7ec2a,0xc7ec5c,0xc7ec95,0xcf5805,0xcf58ad}) {
         Reset();config["terrain_sidecar"]=1;mismatchSite=site;
         assert(Tpf2mpPluginInit(&host,&info)==0 && !sidecarOn && sidecarHooks.empty());

@@ -1,7 +1,7 @@
 # TpF2 Multiplayer on Linux: install, uninstall, logs
 
-Current release integration: **0.7.1.1**, Windows dev `5b817efb`; see the
-[integration and validation record](UPSTREAM_dev_5b817efb.md). All peers, including dedicated
+Current release integration: **0.7.1.1**, Windows dev `40e12f76`; see the
+[integration and validation record](UPSTREAM_dev_40e12f76.md). All peers, including dedicated
 servers, must update. Existing native Sandbox town-tool capture, minimap and
 cargo-filter limitations remain. Upstream performance measurements were not
 repeated locally; matching release numbers do not establish gameplay parity.
@@ -642,3 +642,9 @@ terrain streaming. `terrain_stream=1` (default) reads the host's growing sidecar
 only when `terrain_sidecar=1` is explicitly enabled. `terrain_stream=0` disables
 stream reading, not lobby sending. Native sidecars remain off by default;
 live terrain ownership and lifetime validation are still outstanding.
+
+The [dev `40e12f76` integration](UPSTREAM_dev_40e12f76.md)
+adds `terrain_sidecar_read_local=0` for stream-only testing when both peers can
+see the host's save folder. The default is 1; native sidecars remain experimental
+and require `terrain_sidecar=1`. With local reads and `terrain_stream` both off,
+the normal terrain computation runs. This switch does not disable sidecar writes.

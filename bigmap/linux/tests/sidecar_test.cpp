@@ -236,13 +236,50 @@ int main() {
         linux_sidecar::SaveHook(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &id, 0, nullptr);
         std::vector<uint8_t> whole;
         { FILE* t = fopen(terr.c_str(), "rb"); assert(t); int c; while ((c = fgetc(t)) != EOF) whole.push_back(uint8_t(c)); fclose(t); }
-        assert(!remove(terr.c_str()));                                    // the joiner has only the stream
         const std::string stream = sdir + "/1234.terr";
         auto put = [&](size_t from, size_t to) {
             FILE* s = fopen(stream.c_str(), from ? "ab" : "wb"); assert(s);
             fwrite(whole.data() + from, 1, to - from, s); fclose(s);
         };
 
+        // Local reads default on: a complete local sidecar serves without a stream.
+        assert(TerrainSidecar::g_readLocal);
+        f.Clear();
+        Load(f, id, N);
+        assert(TerrainSidecar::Loaded() && !TerrainSidecar::Progress().streaming);
+        assert(Pass(f));
+        for (int i = 0; i < N; ++i) assert(f.heights[i] == want4[i]);
+
+        // Stream-only ignores both the exact save path and fingerprint siblings.
+        TerrainSidecar::g_readLocal = false;
+        for (int sibling = 0; sibling < 2; ++sibling) {
+            if (sibling) assert(!rename(terr.c_str(), (g_dir + "/Host.terr").c_str()));
+            f.Clear();
+            Load(f, id, N);
+            assert(!TerrainSidecar::Loaded() && TerrainSidecar::g_sidecarPath[0] == 0);
+            assert(!Pass(f));
+            for (int i = 0; i < N; ++i)
+                assert(std::all_of(f.heights[i].begin(), f.heights[i].end(), [](uint16_t v) { return v == 0; }));
+        }
+        assert(!rename((g_dir + "/Host.terr").c_str(), terr.c_str()));
+
+        // With streaming disabled too, fall back even though a local file exists.
+        TerrainSidecar::SetStreamDir(nullptr);
+        Load(f, id, N);
+        assert(!TerrainSidecar::g_pending && !TerrainSidecar::Loaded() && !Pass(f));
+        TerrainSidecar::SetStreamDir(data.c_str());
+
+        // The actual stream wins with the local file still present.
+        put(0, whole.size());
+        f.Clear();
+        Load(f, id, N);
+        assert(TerrainSidecar::Loaded() && std::string(TerrainSidecar::g_sidecarPath) == stream);
+        assert(Pass(f));
+        for (int i = 0; i < N; ++i) assert(f.heights[i] == want4[i]);
+        assert(!remove(stream.c_str()));
+
+        // Run the incremental/late/malformed-stream regressions in stream-only mode,
+        // with the complete local sidecar still visible throughout.
         // a) the file grows in odd pieces: every Refresh indexes the whole records so far
         put(0, 20);                                                       // not even the header: not found yet
         f.Clear();
@@ -329,6 +366,7 @@ int main() {
         assert(f.heights[first.index] == want4[first.index]);
         assert(!Pass(f));
         TerrainSidecar::SetStreamDir(nullptr);
+        TerrainSidecar::g_readLocal = true;
     }
 
     // 9. Writing off: a save leaves no sidecar.

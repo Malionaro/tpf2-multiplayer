@@ -1,7 +1,7 @@
 # TpF2 Multiplayer — Transport Fever 2 multiplayer mod
 
-Current release integration: **0.7.1.1**, Windows dev `9602a389`; see the
-[integration and validation record](docs/linux/UPSTREAM_dev_9602a389.md). All peers, including dedicated
+Current release integration: **0.7.1.1**, Windows dev `40e12f76`; see the
+[integration and validation record](docs/linux/UPSTREAM_dev_40e12f76.md). All peers, including dedicated
 servers, must update. Existing native Sandbox town-tool capture, minimap and
 cargo-filter limitations remain. Upstream performance measurements were not
 repeated locally; matching release numbers do not establish gameplay parity.
@@ -478,3 +478,9 @@ The [dev `9602a389` integration](docs/linux/UPSTREAM_dev_9602a389.md) adds
 experimental native terrain streaming during joiner loads and guarded save
 terrain selection. Sidecars remain disabled by default pending live lifetime
 and ownership validation; the lab launch failed before game startup.
+
+The [dev `40e12f76` integration](docs/linux/UPSTREAM_dev_40e12f76.md)
+adds `terrain_sidecar_read_local=0` for stream-only testing when both peers can
+see the host's save folder. The default is 1; native sidecars remain experimental
+and require `terrain_sidecar=1`. With local reads and `terrain_stream` both off,
+the normal terrain computation runs. This switch does not disable sidecar writes.
