@@ -843,6 +843,22 @@ local function worldHash(now)
 		end)
 	end
 	CM.dashMoney, CM.dashLoan = mBal, mLoan
+	-- k: every COMPANY's balance and loan (companies mode, 2026-09-27), by company
+	-- id -- each machine reads its own entity for each company, so honest machines
+	-- agree. A company's wallet going apart on one machine (a switch that minted
+	-- or lost money there, a cost moved twice) used to show only when a player
+	-- noticed; net.lua logs it when the lane differs. Detail-only.
+	local kLane = "-"
+	if CM.cmMode == "companies" and CM.cmIds then
+		pcall(function()
+			local parts = {}
+			for _, cid in ipairs(CM.cmIds()) do
+				local b, l = CM.cmWallet(CM.cmCompanyPid[cid])
+				parts[#parts + 1] = string.format("%d=%d/%d", cid, math.floor((b or 0) + 0.5), math.floor((l or 0) + 0.5))
+			end
+			if #parts > 0 then kLane = table.concat(parts, ";") end
+		end)
+	end
 	-- PEOPLE COUNT LANE (n:). The people sim is deterministic in lockstep, so
 	-- two instances at the same stamp must agree on how many sim persons
 	-- exist. They did not: a depot placed over town buildings left one
@@ -870,9 +886,9 @@ local function worldHash(now)
 		warnedNoCarrier = true
 		log("train-name lane: no vehicle reported a carrier -- the r lane covers EVERY vehicle, not just trains")
 	end
-	local detail = string.format("v%d,c%d:%s,e%d:%s,z:%s,p%d@%.1f:%s,%s,m:%s,l:%s,t:%d,n:%d",
+	local detail = string.format("v%d,c%d:%s,e%d:%s,z:%s,p%d@%.1f:%s,%s,m:%s,l:%s,t:%d,n:%d,k:%s",
 		nv, #cons, hc, #egeo, he, hashList(egeoZ, "|"),
-		#vpos, now or -1, hashList(vpos, "|"), rLane, mBal, mLoan, nt, np)
+		#vpos, now or -1, hashList(vpos, "|"), rLane, mBal, mLoan, nt, np, kLane)
 	return verdict, detail
 end
 

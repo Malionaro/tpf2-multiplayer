@@ -4,6 +4,7 @@
 #include "../../src/town_trace.h"
 #include "hook.h"
 #include "codewrite_linux.h"
+#include "../../src/entity_deque_canon.h"
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
@@ -70,6 +71,17 @@ const CanonSite kCanonSites[] = {
     // rdi = Engine*, xmm0 = float dt. Replay the two system-vector loads.
     { "step", 0x32515c5, 8, 0x0,
       { 0x4c,0x8b,0x67,0x30, 0x4c,0x8b,0x77,0x38, 0xf3,0x0f,0x11,0x45,0xbc, 0x64,0x48,0x8b } },
+    // SimEntityAtTerminalSystem::Update 0x16f6090: rax = the vector<Entity> of the
+    // vehicles standing at this line stop (TransportVehicleSystem lookup 0x17718e0),
+    // append order while running, load order after a load; the waiting cargo and
+    // people are handed to them in this order (docs/re/TERMINAL_WAIT_ORDER.md, A).
+    { "vehstop", 0x16f6823, 7, 0x0,
+      { 0x48,0x89,0x85,0xe0,0xf1,0xff,0xff, 0x89,0xda, 0x4c,0x89,0xf7, 0xe8,0x5c,0xed,0x2e } },
+    // SimEntityAtVehicleSystem::Update 0x16fd820: r15 = the deque<Entity> of one
+    // (vehicle, stop, cargo), boarding order while running, load order after a
+    // load, unloaded from its front (TERMINAL_WAIT_ORDER.md, B).
+    { "unload", 0x16fe0ae, 8, 0x0,
+      { 0x49,0x8b,0x47,0x30, 0x49,0x8b,0x5f,0x10, 0x4d,0x8b,0x67,0x20, 0x4d,0x8b,0x7f,0x28 } },
 };
 constexpr unsigned kCanonSiteCount = sizeof(kCanonSites) / sizeof(kCanonSites[0]);
 
@@ -147,6 +159,52 @@ void CanonRelink(unsigned site, uintptr_t rbp) noexcept
 
 #include "family_canon_linux.inl"
 
+// vehstop: the vector object is rax itself.
+void CanonVehicleStop(unsigned site, uintptr_t vector) noexcept
+{
+    auto& c = g_canonCounters[site];
+    const uint64_t n = c.calls.fetch_add(1, std::memory_order_relaxed) + 1;
+    uintptr_t v[3] = {0, 0, 0};
+    if (vector) std::memcpy(v, reinterpret_cast<const void*>(vector), sizeof(v));
+    const uintptr_t begin = v[0], end = v[1], cap = v[2];
+    if (!vector || begin > end || end > cap || ((end - begin) & 3) || (begin & 3) || end - begin > (uintptr_t(1) << 24)
+        || (begin == 0) != (end == 0)) {
+        if (!c.refused.fetch_add(1, std::memory_order_relaxed))
+            if (auto log = g_canonLog.load(std::memory_order_relaxed))
+                log("[order-canon] ERROR: vehstop: not an entity vector at %p (%p %p %p); left as is\n",
+                    (void*)vector, (void*)begin, (void*)end, (void*)cap);
+        return;
+    }
+    int32_t* b = reinterpret_cast<int32_t*>(begin);
+    int32_t* e = reinterpret_cast<int32_t*>(end);
+    if (b != e && !std::is_sorted(b, e)) { std::sort(b, e); c.reordered.fetch_add(1, std::memory_order_relaxed); }
+    if (n == 1 || !(n & 0xffff))
+        if (auto log = g_canonLog.load(std::memory_order_relaxed))
+            log("[order-canon] alive: vehstop calls=%llu reordered=%llu refused=%llu last=%lld\n", (unsigned long long)n,
+                (unsigned long long)c.reordered.load(std::memory_order_relaxed),
+                (unsigned long long)c.refused.load(std::memory_order_relaxed), (long long)(e - b));
+}
+
+// unload: the libstdc++ deque object is r15.
+void CanonUnload(unsigned site, uintptr_t deque) noexcept
+{
+    auto& c = g_canonCounters[site];
+    const uint64_t n = c.calls.fetch_add(1, std::memory_order_relaxed) + 1;
+    static thread_local std::vector<int32_t*> at;
+    static thread_local std::vector<int32_t> ids;
+    int r = DQ_REFUSED;
+    try { if (deque) r = DequeCanonGnu(reinterpret_cast<uint8_t*>(deque), at, ids); } catch (...) {}
+    if (r == DQ_REORDERED) c.reordered.fetch_add(1, std::memory_order_relaxed);
+    else if (r == DQ_REFUSED && !c.refused.fetch_add(1, std::memory_order_relaxed))
+        if (auto log = g_canonLog.load(std::memory_order_relaxed))
+            log("[order-canon] ERROR: unload: not an entity deque at %p; left in boarding order\n", (void*)deque);
+    if (n == 1 || !(n & 0xffff))
+        if (auto log = g_canonLog.load(std::memory_order_relaxed))
+            log("[order-canon] alive: unload calls=%llu reordered=%llu refused=%llu\n", (unsigned long long)n,
+                (unsigned long long)c.reordered.load(std::memory_order_relaxed),
+                (unsigned long long)c.refused.load(std::memory_order_relaxed));
+}
+
 void CanonSort(unsigned site, uintptr_t rbp, uintptr_t r13) noexcept
 {
     if (kCanonSites[site].relinkMaps) { CanonRelink(site, rbp); return; }
@@ -198,6 +256,8 @@ void Tpf2mpOrderCanonDispatch(CanonRegisters* r) noexcept
     r->resume = reinterpret_cast<uintptr_t>(g_canonOriginal[index]);
     if (g_canonReady) {
         if (index == 6) CanonFamilies(r->rdi);
+        else if (index == 7) CanonVehicleStop(7, r->rax);
+        else if (index == 8) CanonUnload(8, r->r15);
         else CanonSort(unsigned(index), r->rbp, r->r13);
     }
 }
@@ -243,11 +303,13 @@ namespace {
         __asm__("push $" #index "\n\tjmp Tpf2mpOrderCanonEntry\n\t"); \
     }
 CANON_STUB(0) CANON_STUB(1) CANON_STUB(2) CANON_STUB(3) CANON_STUB(4) CANON_STUB(5) CANON_STUB(6)
+CANON_STUB(7) CANON_STUB(8)
 #undef CANON_STUB
 void* const kCanonDetours[] = {
     reinterpret_cast<void*>(CanonStub0), reinterpret_cast<void*>(CanonStub1), reinterpret_cast<void*>(CanonStub2),
     reinterpret_cast<void*>(CanonStub3), reinterpret_cast<void*>(CanonStub4),
-    reinterpret_cast<void*>(CanonStub5), reinterpret_cast<void*>(CanonStub6)
+    reinterpret_cast<void*>(CanonStub5), reinterpret_cast<void*>(CanonStub6),
+    reinterpret_cast<void*>(CanonStub7), reinterpret_cast<void*>(CanonStub8)
 };
 static_assert(sizeof(kCanonDetours) / sizeof(kCanonDetours[0]) == kCanonSiteCount);
 }
@@ -289,7 +351,7 @@ static bool InstallOrderCanon(uintptr_t base, const char* buildId, bool (*instal
         return false;
     }
     g_canonReady = true;
-    g_canonStatus.store("enabled (candidates, departures, arrivals, idle sorted by entity id; capacity maps relinked; freed-id batches sorted; all ECS families sorted per iteration)");
+    g_canonStatus.store("enabled (candidates, departures, arrivals, idle sorted by entity id; capacity maps relinked; freed-id batches sorted; all ECS families sorted per iteration; vehicles at a stop and unload queues sorted by entity id)");
     return installed == kCanonSiteCount;
 }
 bool Tpf2mpInstallOrderCanon(uintptr_t base,const char* buildId) { return InstallOrderCanon(base,buildId,InstallHook); }

@@ -715,6 +715,27 @@ function CM.compareOne(stamp, origin, theirs, dt)
 	-- silently. Compare them here on EVERY stamp and log only when the GAP
 	-- CHANGES, so each event that widens or closes the split is timestamped --
 	-- which is what tells a stop-cost asymmetry from a vehicle-income one.
+	-- COMPANY WALLETS (k:, companies mode): every company's balance/loan as each
+	-- machine sees it. Logged when the difference changes, company by company.
+	do
+		local dm = CM.myDetails[stamp]
+		local ka = dm and dm:match(",k:([^,]*)")
+		local kb = dt and dt:match(",k:([^,]*)")
+		if ka and kb and ka ~= "-" and kb ~= "-" then
+			local theirs = {}
+			for cid, v in kb:gmatch("(%d+)=([^;]+)") do theirs[cid] = v end
+			local diff = {}
+			for cid, v in ka:gmatch("(%d+)=([^;]+)") do
+				if theirs[cid] and theirs[cid] ~= v then diff[#diff + 1] = "co" .. cid .. " " .. v .. " vs " .. theirs[cid] end
+			end
+			local text = table.concat(diff, ", ")
+			CM.walletGap = CM.walletGap or {}
+			if CM.walletGap[origin] ~= text then
+				CM.walletGap[origin] = text
+				log(string.format("$$ COMPANY WALLETS t=%d vs %s: %s", stamp, origin, text ~= "" and text or "agree again"))
+			end
+		end
+	end
 	do
 		local dm = CM.myDetails[stamp]
 		if dm and dt then
@@ -1384,15 +1405,8 @@ local function onLine(line)
 			end
 			-- our own command coming back off the wire; already queued
 			if c.origin ~= K.INSTANCE then
-				-- companies mode: the lobby's assignment wins over the sender's stamp
-				if CM.cmOriginCompany == nil then CM.cmReadConfig() end
-				local lc = CM.cmMode == "companies" and CM.cmOriginCompany and CM.cmOriginCompany[c.origin]
-				if lc then
-					if c.company and tonumber(c.company) ~= lc then
-						CM.cmLog(string.format("CM: origin %s claimed company %s but the lobby assigned %d -- overriding", tostring(c.origin), tostring(c.company), lc))
-					end
-					c.company = lc
-				end
+				-- (companies: a command's company is decided at its stamp, from the
+				-- registry -- CM.cmAttribute in execute -- not when it arrives)
 				-- ONE COPY IN THE QUEUE (2026-09-16). A command now arrives up to three
 				-- times (scheduleLocal's copies, a NACK resend, the history feed). The
 				-- apply loop deduplicates at EXECUTION, but its pre-pass hands every

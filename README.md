@@ -1,12 +1,15 @@
 # TpF2 Multiplayer — Transport Fever 2 multiplayer mod
 
-Current release integration: **0.7.1.1**, Windows dev `412aeb8e`; see the
-[integration and validation record](docs/linux/UPSTREAM_dev_412aeb8e.md). All peers, including dedicated
+Current release integration: **0.7.1.2**, Windows dev `10c327a7`; see the
+[integration and validation record](docs/linux/UPSTREAM_dev_10c327a7.md). All peers, including dedicated
 servers, must update. Existing native Sandbox town-tool capture, minimap and
 cargo-filter limitations remain. Upstream performance measurements were not
 repeated locally; matching release numbers do not establish gameplay parity.
 Catching-up peers retain recently heard leader clocks when stamping commands
 and defer spare-line requests until catch-up completes.
+Native terrain sidecars remain experimental and off by default; material-index
+acceleration remains unported. The upstream 0.7.1.2 release notes do not supersede
+these Linux limits or establish new native performance results.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -41,7 +44,8 @@ adds native terrain pager recency, automatic memory headroom and fault-rate
 logging; loaded-big-map performance validation remains outstanding.
 The Windows MSI instructions below apply to the Windows version.
 The subsequent [dev `60d237c5` integration](docs/linux/UPSTREAM_dev_60d237c5.md)
-retains the Windows autosave-sidecar fix; native terrain sidecars remain unported.
+retains the Windows autosave-sidecar fix; native terrain sidecars are now available experimentally, default off, in
+[dev `2b4fd093`](docs/linux/UPSTREAM_dev_2b4fd093.md). Live lifetime validation remains blocked.
 
 ## How it works
 
@@ -442,3 +446,87 @@ shared multiplayer toolbar, pipe-idle and leader-loss fixes, and imports native
 road-read batching, threaded save compression, terrain page initialization and
 Steam poll throttling. Native town-tool capture and minimap extensions remain
 unported after static RE and blocked lab startup. Release remains 0.7.0.7.
+
+The [dev `ac3b4be3` integration](docs/linux/UPSTREAM_dev_ac3b4be3.md) records
+upstream merging the completed Linux ports through `412aeb8e` back into Windows
+history. Its source tree matches the preceding Linux integration; runtime
+behavior and release **0.7.1.1** are unchanged.
+
+The [dev `bde31323` integration](docs/linux/UPSTREAM_dev_bde31323.md) brings the
+company registry rewrite, rebuilt COMPANIES tab and native free-color tints.
+Release remains 0.7.1.1. Native and shared regression tests pass; the lab launch
+was blocked before game startup, so live gameplay validation remains outstanding.
+
+The [dev `0871bfa6` integration](docs/linux/UPSTREAM_dev_0871bfa6.md) retains Windows' complete-sidecar
+alignment bypass. Native Linux sidecar serving and this bypass remain unported;
+Linux continues its existing alignment path. Static publication metadata was
+verified, but the lab failed before startup, preventing live lifetime proof.
+
+The [dev `c8dd5157` integration](docs/linux/UPSTREAM_dev_c8dd5157.md) adds Linux offline coverage for
+threaded terrain-sidecar encoding and POSIX file handling. Native game-side
+capture/serving remains unported; `terrain_sidecar_threads` has no native
+runtime effect. No native save-time improvement is claimed.
+
+The [dev `fdfb79e8` integration](docs/linux/UPSTREAM_dev_fdfb79e8.md) retains
+Windows range tracking for multiple terrain versions. Native sidecar serving
+and alignment bypass remain unported after fresh static analysis and a lab
+startup failure; native alignment behavior is unchanged.
+
+The [dev `5b817efb` integration](docs/linux/UPSTREAM_dev_5b817efb.md) keeps a terrain sidecar
+while another served terrain version awaits its pass. Each version skips only
+once; a pass that runs releases the file. Native sidecars remain experimental
+and default off. Live validation was blocked before game startup.
+
+The [dev `9602a389` integration](docs/linux/UPSTREAM_dev_9602a389.md) adds
+experimental native terrain streaming during joiner loads and guarded save
+terrain selection. Sidecars remain disabled by default pending live lifetime
+and ownership validation; the lab launch failed before game startup.
+
+The [dev `40e12f76` integration](docs/linux/UPSTREAM_dev_40e12f76.md)
+adds `terrain_sidecar_read_local=0` for stream-only testing when both peers can
+see the host's save folder. The default is 1; native sidecars remain experimental
+and require `terrain_sidecar=1`. With local reads and `terrain_stream` both off,
+the normal terrain computation runs. This switch does not disable sidecar writes.
+
+The [dev `b6d73041` integration](docs/linux/UPSTREAM_dev_b6d73041.md) retains Windows’
+4 GiB maximum automatic free-commit threshold and `commit_tight_mb` override.
+Native terrain paging continues to use `MemAvailable`; this Windows setting
+has no native effect. Release remains 0.7.1.1.
+
+The [dev `5fd49a24` integration](docs/linux/UPSTREAM_dev_5fd49a24.md) gives
+native terrain-sidecar lookups a cursor per thread, reset for each load and
+grid. Sidecars remain experimental and default off; no live speedup is claimed.
+
+The [dev `26564158` integration](docs/linux/UPSTREAM_dev_26564158.md) searches
+outward from each native terrain-sidecar worker's last hit and reports probes
+per lookup at load completion. Sidecars remain experimental and default off;
+fixture probe counts do not establish a live load-time improvement.
+
+The [dev `7e3d3bfa` integration](docs/linux/UPSTREAM_dev_7e3d3bfa.md) retains the Windows material-index
+optimization and DLL-map profiler support. Native material-index acceleration
+remains unported: the Linux selection loop is inlined, and the lab failed
+before startup, preventing buffer-lifetime proof. Release remains 0.7.1.1.
+
+The [dev `8066c58f` integration](docs/linux/UPSTREAM_dev_8066c58f.md) retains the default-off Windows
+material-index measurement probe. Native `material_index_probe` remains
+unported after static investigation and a lab startup failure; Linux produces
+no `material_probe.txt`. Windows measurements do not establish native tile
+hashes or compression sizes. Release remains 0.7.1.1.
+
+The [dev `65302e5d` integration](docs/linux/UPSTREAM_dev_65302e5d.md)
+adds native parallel sidecar decoding at the alignment pass and retains the
+file for both terrain versions. Sidecars remain experimental and off by default;
+fixture tests pass, but the lab could not start for live validation.
+
+The [dev `a2e47f2c` integration](docs/linux/UPSTREAM_dev_a2e47f2c.md)
+retains Windows profiler follow mode and ETW stack/wait readers as developer
+tools. Native runtime behavior and release 0.7.1.1 are unchanged.
+
+The [dev `7bace802` integration](docs/linux/UPSTREAM_dev_7bace802.md) retains Windows load-speed
+findings, including the rejected material-index chunk-size experiment. These
+are upstream measurements; native runtime behavior and release 0.7.1.1 are unchanged.
+
+The [dev `0eb9eea2` integration](docs/linux/UPSTREAM_dev_0eb9eea2.md) lowers Windows’ automatic
+free-commit threshold to 2..3 GiB (unknown RAM: 3 GiB). Native terrain paging
+retains its existing `MemAvailable` policy; `commit_tight_mb` has no native
+effect. Release remains 0.7.1.1.

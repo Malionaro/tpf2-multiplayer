@@ -371,11 +371,19 @@ unknown/refused=61`. After deployment the server's log must read
 Order-sensitive consumers the lab world did not exercise (it has two vehicles
 and no player activity between the host's load and the join), found by RE:
 
-- **SimEntityAtTerminalSystem::Update** 0xa81810: waiting people sit in per-terminal,
-  per-cargo deques -- arrival order while running, registration order after a
-  load; one time-seeded mt19937 draws "give up waiting" per person in deque
-  order, and boarding takes them in deque order up to capacity. Needs an arrival
-  key to canonicalise, not a sort by id.
+- ~~**SimEntityAtTerminalSystem::Update** 0xa81810: waiting people sit in per-terminal,
+  per-cargo deques in arrival order.~~ Wrong (2026-09-27,
+  [TERMINAL_WAIT_ORDER.md](TERMINAL_WAIT_ORDER.md)): those deques are kept sorted
+  by `(arrivalTime, id)` and the time is saved, so they already agree. What a load
+  does not reproduce is next to them, and both are now sorted by entity id (sites
+  `vehstop` and `unload`, Windows 0xa820f4 / 0xa85aa5, native 0x16f6823 /
+  0x16fe0ae):
+  - the vehicles standing at a line stop (TransportVehicleSystem+0x220, append
+    order), which receive the waiting cargo and people in that order. A live join
+    on the dedicated server (2026-09-27) split here: two trucks of one line at one
+    stop loaded differently on the server and the joiner;
+  - each (vehicle, stop, cargo) unload deque (SimEntityAtVehicleSystem, boarding
+    order, no saved boarding key), unloaded from its front.
 - Whatever else consumes a node list the same way in vehicle, cargo and industry
   systems; see the sections added below as they are measured.
 

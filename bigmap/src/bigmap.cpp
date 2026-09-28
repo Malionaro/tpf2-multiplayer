@@ -1252,12 +1252,14 @@ int Tpf2mpPluginInit(const Tpf2mpHost* host, Tpf2mpPluginInfo* out)
     g_placementAttempts = H->cfgInt("tpf2_bigmap", "placement_attempts", 200);
     g_worldEntryTimings = H->cfgBool("tpf2_bigmap", "world_entry_timings", 0) != 0;
     g_materialIndexFast = H->cfgBool("tpf2_bigmap", "material_index_fast", 0) != 0;
+    g_materialProbe = H->cfgBool("tpf2_bigmap", "material_index_probe", 0) != 0;
     g_terrainRefineFast = H->cfgBool("tpf2_bigmap", "terrain_refine_fast", 0) != 0;
     g_terrainMinMaxFast = H->cfgBool("tpf2_bigmap", "terrain_minmax_fast", 0) != 0;
     g_terrainAlignFast = H->cfgBool("tpf2_bigmap", "terrain_align_fast", 0) != 0;
     g_terrainCacheSpacing = H->cfgInt("tpf2_bigmap", "terrain_cache_spacing_m", 0);
     g_terrainCompress = H->cfgInt("tpf2_bigmap", "terrain_cache_compress", 0);
     g_terrainHotMB = H->cfgInt("tpf2_bigmap", "terrain_cache_hot_mb", 0);
+    g_commitTightMB = H->cfgInt("tpf2_bigmap", "commit_tight_mb", 0);
     g_terrainWarmMB = H->cfgInt("tpf2_bigmap", "terrain_cache_warm_mb", -1);
     g_terrainMaxMB = H->cfgInt("tpf2_bigmap", "terrain_cache_max_mb", 0);
     g_simPhysicalMB = H->cfgInt("tpf2_bigmap", "simulate_physical_mb", 0);
@@ -1282,6 +1284,13 @@ int Tpf2mpPluginInit(const Tpf2mpHost* host, Tpf2mpPluginInfo* out)
     g_saveFast = H->cfgBool("tpf2_bigmap", "save_fast", 0) != 0;
     g_travelTimeLimit = H->cfgInt("tpf2_bigmap", "travel_time_limit_s", 0);
     g_alignmentBatch = H->cfgInt("tpf2_bigmap", "alignment_batch_tiles", 512);
+    g_alignmentSkipServed = H->cfgInt("tpf2_bigmap", "alignment_skip_served", 1);
+    TerrainSidecar::g_writeThreads = H->cfgInt("tpf2_bigmap", "terrain_sidecar_threads", 0);
+    // A joiner takes the host's sidecar while its load runs (docs/terrain-stream.md).
+    if (H->cfgBool("tpf2_bigmap", "terrain_stream", 1) && H->dataDir) TerrainSidecar::SetStreamDir(H->dataDir());
+    TerrainSidecar::g_readLocal = H->cfgBool("tpf2_bigmap", "terrain_sidecar_read_local", 1) != 0;
+    g_serveAtPass = H->cfgBool("tpf2_bigmap", "terrain_sidecar_decode_at_pass", 1) != 0 &&
+                                  g_alignmentBatch > 0 && g_alignmentSkipServed;
     g_terrainServe = H->cfgBool("tpf2_bigmap", "terrain_sidecar", 1) != 0;
     g_sidecarWrite = H->cfgBool("tpf2_bigmap", "terrain_sidecar_write", 1) != 0;
     g_sidecarMaxTiles = H->cfgInt("tpf2_bigmap", "terrain_sidecar_max_tiles", 0);
