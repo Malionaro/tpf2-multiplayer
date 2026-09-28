@@ -650,3 +650,14 @@ material-index measurement probe. Native `material_index_probe` remains
 unported after static investigation and a lab startup failure; Linux produces
 no `material_probe.txt`. Windows measurements do not establish native tile
 hashes or compression sizes. Release remains 0.7.1.1.
+
+## Windows load-speed findings (dev 7bace802)
+
+The September 28 section of [load-speed-todo.md](../load-speed-todo.md)
+reports Windows profiling, tile hashes and timings. Its 32x32 material-index
+chunk experiment changed 8,164 of 36,992 tiles and was rejected upstream;
+retain stock chunk sizing. The quoted PE addresses are not Linux patch sites.
+No native implementation or setting changes in this integration. Native
+material-index acceleration/probing gaps above and experimental default-off
+sidecars remain unchanged; no native timing or tile-hash result is implied.
+See [integration and validation](../../../docs/linux/UPSTREAM_dev_7bace802.md).

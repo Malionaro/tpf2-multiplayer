@@ -518,3 +518,7 @@ fixture tests pass, but the lab could not start for live validation.
 The [dev `a2e47f2c` integration](docs/linux/UPSTREAM_dev_a2e47f2c.md)
 retains Windows profiler follow mode and ETW stack/wait readers as developer
 tools. Native runtime behavior and release 0.7.1.1 are unchanged.
+
+The [dev `7bace802` integration](docs/linux/UPSTREAM_dev_7bace802.md) retains Windows load-speed
+findings, including the rejected material-index chunk-size experiment. These
+are upstream measurements; native runtime behavior and release 0.7.1.1 are unchanged.

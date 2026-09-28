@@ -674,3 +674,7 @@ The [dev `a2e47f2c` integration](UPSTREAM_dev_a2e47f2c.md) adds Windows-only
 profiling diagnostics; it changes no native installation, settings or runtime
 behavior. See the [tooling scope](../re/linux/DEV_A2E47F2C.md) before using
 these tools with native Linux captures.
+
+The [dev `7bace802` integration](UPSTREAM_dev_7bace802.md) retains Windows load-speed
+findings, including the rejected material-index chunk-size experiment. These
+are upstream measurements; native runtime behavior and release 0.7.1.1 are unchanged.
