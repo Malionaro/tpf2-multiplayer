@@ -541,6 +541,7 @@ CM.boot("mp.io")
 -- ---------- multi-company mode (opt-in; co-op is the default and is untouched) ----------
 -- Lives in res/scripts/mp/companies.lua (see the header there).
 CM.boot("mp.companies")
+CM.boot("mp.companies_gui")   -- the COMPANIES tab (GUI state only draws it)
 
 -- Forward declarations: worldHash uses these, and they are defined further
 -- down. A later `local function` would create a DIFFERENT variable and this
@@ -669,6 +670,8 @@ local function execute(c)
 	-- any other command may edit the road/rail network: EDEMO's node index
 	-- (cons.lua) is only reused across consecutive bulldozes
 	if c.op ~= "EDEMO" then CM.edemoCache = nil end
+	-- companies: the command's company, as the registry has it at this stamp
+	CM.cmAttribute(c)
 	if c.op == "CONP" or c.op == "CONX" then CM.execConX(c)
 	elseif c.op == "CONU" then CM.execConU(c)
 	elseif c.op == "FENCE" then CM.execFence(c)
@@ -702,7 +705,8 @@ local function execute(c)
 	elseif c.op == "TERRAIN" then CM.execTerrain(c)
 	elseif c.op == "ASSETS" then CM.execAssets(c)
 	elseif c.op == "TOWNC" then CM.execTownCreate(c)
-	elseif c.op == "CMNEW" or c.op == "CMSWITCH" or c.op == "CMDEL" or c.op == "CMPW" or c.op == "CMNAME" or c.op == "CMOPEN" then CM.execCompanyCmd(c)
+	elseif c.op == "CMJOIN" or c.op == "CMLEAVE" or c.op == "CMNEW" or c.op == "CMSWITCH" or c.op == "CMDEL" or c.op == "CMPW"
+		or c.op == "CMNAME" or c.op == "CMOPEN" or c.op == "CMCOLOR" then CM.execCompanyCmd(c)
 	else log("unknown op: " .. tostring(c.op)) end
 end
 
@@ -993,13 +997,17 @@ function data()
 			if CM.autoSyncPump(CM.gameTime() or 0) then return end
 			CM.pollEvents()
 			pcall(CM.sampleSimRate)
-			if CM.cmVehPending or CM.cmRepairAt then pcall(CM.cmVehRecheck) end
-			if CM.cmSwitchWanted then pcall(CM.cmLoadSwitchTick) end   -- companies: the load-time switch waits for a world that answers   -- companies: vehicles left to follow their lines in a switch
+			if CM.cmRepairAt then pcall(CM.cmVehRecheck) end              -- companies: lines follow their vehicles after a switch
+			if CM.cmSwitchWanted then pcall(CM.cmLoadSwitchTick) end      -- companies: a switch waits for a world that answers
 			if CM.ticks % 60 == 0 or not K.INSTANCE then
 				if not CM.detectInstance() then return end
-				-- a save's company state (load hook) is applied here, on the sim
-				-- thread with the engine API up, not inside load() itself
-				if CM.cmSaved and not CM.cmLive then CM.cmReadConfig() end
+				-- companies (companies.lua): the save's record is applied here, on the
+				-- sim thread with the engine API up, not inside load() itself; then this
+				-- game joins the session once it is live (not while it loads or catches
+				-- up), and a player gone from the lobby is let go
+				pcall(CM.cmEnsure)
+				pcall(CM.cmJoinTick, CM.peerSeen and not CM.catchingUp2 and (CM.behindBy or 0) <= 2)
+				pcall(CM.cmLeaveTick)
 				-- WORLD INTEGRITY, once per load: a road edge without its
 				-- TransportNetwork component is a half-built leftover of a failed
 				-- proposal (the 2026-09-09 rail crossing left two); the engine
@@ -1315,28 +1323,12 @@ function data()
 							CM.spdReqInForce and CM.spdReq and string.format("%g", CM.spdReq) or "-", CM.voteWords(CM.voteCounted),
 							myVote and string.format("%g", myVote.v) or "-", CM.syncState or "-", CM.paceInfo or "-", CM.xferInfo or "-"))
 						f:write("gov=" .. ((CM.govFactor and CM.govFactor < 1) and string.format("x%.2f (%s %.1f behind)", CM.govFactor, tostring(CM.govWho or "?"), CM.govWorst or 0) or "-") .. "\n")
-						-- companies: mine, the roster, and who plays what ("3:a,b 4:c")
+						-- companies: the registry as the COMPANIES tab shows it (companies.lua
+						-- CM.cmDashLines), and the slice's / other mods' files
 						pcall(function()
-							local ids, who = {}, {}
-							for _, cid in ipairs(CM.cmRoster or { CM.cmMyCompany or 1 }) do
-								ids[#ids + 1] = tostring(cid)
-								local p = CM.cmPlayersOf(cid); if #p > 0 then who[#who + 1] = cid .. ":" .. table.concat(p, ",") end
-							end
-							local locked = {}
-							for cid in pairs(CM.cmPw or {}) do locked[#locked + 1] = tostring(cid) end
-							table.sort(locked)
-							-- names, percent-escaped ("3:Acme%20Co 4:...")
-							local names = {}
-							for _, cid in ipairs(CM.cmRoster or {}) do
-								local n = CM.cmNameOf and CM.cmNameOf(cid) or (CM.cmName and CM.cmName[cid])
-								if n and n ~= "" then names[#names + 1] = cid .. ":" .. CM.escName(n) end
-							end
-							-- station permissions ("1:* 2:1,3 3:-"), and the slice's file (companies.lua)
-							local open = {}
-							for _, cid in ipairs(CM.cmRoster or {}) do open[#open + 1] = cid .. ":" .. (CM.cmOpenCode and CM.cmOpenCode(cid) or "*") end
-							if CM.cmWritePerms then pcall(CM.cmWritePerms) end
-							if CM.cmWriteCompanyMap then pcall(CM.cmWriteCompanyMap) end
-							f:write(string.format("company=%s\nroster=%s\nplayed=%s\nconote=%s\ncolocked=%s\nconames=%s\ncoopen=%s\n", tostring(CM.cmMyCompany or 1), table.concat(ids, ","), table.concat(who, " "), tostring(CM.cmLastNote or ""), table.concat(locked, ","), table.concat(names, " "), table.concat(open, " ")))
+							f:write(table.concat(CM.cmDashLines(), "\n") .. "\n")
+							pcall(CM.cmWritePerms)
+							pcall(CM.cmWriteCompanyMap)
 						end)
 						-- paused=yes: the speed lever reads 0 (a pause, the load gate, a catch-up hold)
 						f:write(string.format("t=%d\npeer=%s\nskew=%s\ndesyncs=%d\nlate=%d\napplylag=%.1f\napplylate=%d\napplied=%d\nqueued=%d\npaused=%s\nspeed=%s\nverdict=%s\ndetail=%s\n",
@@ -1677,7 +1669,9 @@ function data()
 							local kv, ev = {}, {}
 							for line in f:lines() do
 								local k, v = line:match("^(%w+)=(.*)$")
-								if k == "ev" then ev[#ev + 1] = v elseif k then kv[k] = v end
+								if k == "ev" then ev[#ev + 1] = v
+								elseif k == "co" then kv.coList = kv.coList or {}; kv.coList[#kv.coList + 1] = v
+								elseif k then kv[k] = v end
 							end
 							f:close()
 							if next(kv) then return kv, ev end
@@ -1931,102 +1925,8 @@ function data()
 						b:onClick(fn)
 						return b
 					end
-					-- ---- companies (2026-09-09): switch, create, dissolve ----
-					-- The GUI state cannot reach the lockstep queue, so a button
-					-- appends "CMSWITCH 3" to the inject file; inject.lua schedules
-					-- the command and every peer applies it on the same step.
-					D.coSel = nil
-					local function coPw()
-						local t = ""
-						pcall(function() t = D.coPwInput and D.coPwInput:getText() or "" end)
-						return (t or ""):gsub("[%c]", "")
-					end
-					local function coRequest(op, cid)
-						-- company changes wait for everyone to load in (the sim refuses them too)
-						local loading = CM.cmLoadingPlayers and CM.cmLoadingPlayers() or {}
-						if #loading > 0 then D.coHint = CM.cmLoadingNote(loading); return end
-						local pw = coPw()
-						local f = io.open(K.BASE .. "lockstep_inject_" .. (K.INSTANCE or "a") .. ".txt", "a")
-						if f then f:write(op .. (cid and (" " .. cid) or "") .. (pw ~= "" and (" " .. pw) or "") .. string.char(10)); f:close() end
-					end
-					-- Your company (2026-09-16): its colour swatch (the lobby chip colour: style
-					-- classes !mpCo1..!mpCo200 in res/config/style_sheet/mp_lockstep.lua) and its
-					-- name. A company is named in the game's own company window; that rename
-					-- reaches every player through CMNAME (inject.lua). Unnamed, it is
-					-- "<player>'s company" (companies.lua CM.cmNameOf).
-					local mrow = api.gui.layout.BoxLayout.new("HORIZONTAL")
-					D.coSwMine = api.gui.comp.TextView.new("     ")
-					D.coNameText = api.gui.comp.TextView.new("")
-					mrow:addItem(api.gui.comp.TextView.new("Your company"))
-					mrow:addItem(D.coSwMine)
-					mrow:addItem(D.coNameText)
-					local mrowC = api.gui.comp.Component.new("mpCompanyMine")
-					mrowC:setLayout(mrow)
-					-- The picker: a dropdown of every company by name, alphabetical. Rebuilt
-					-- only when its labels change (see D.coItemsSig below), so a click is
-					-- never lost to a refresh; the box sits in its own component so a
-					-- rebuild swaps it in place.
-					local crow = api.gui.layout.BoxLayout.new("HORIZONTAL")
-					D.coPickL = api.gui.layout.BoxLayout.new("HORIZONTAL")
-					D.coPick = api.gui.comp.Component.new("mpCompanyPick")
-					D.coPick:setLayout(D.coPickL)
-					crow:addItem(api.gui.comp.TextView.new("Switch company"))
-					crow:addItem(D.coPick)
-					-- the selected company's colour, beside the dropdown (2026-09-16)
-					D.coSwSel = api.gui.comp.TextView.new("     ")
-					crow:addItem(D.coSwSel)
-					local companyActions = api.gui.layout.BoxLayout.new("HORIZONTAL")
-					companyActions:addItem(speedBtn("Switch company", function() if D.coSel then coRequest("CMSWITCH", D.coSel) end end))
-					companyActions:addItem(speedBtn("New company", function() coRequest("CMNEW") end))
-					-- (CMDEL "dissolve into mine" exists in the sim but has no button: too easy to misread, 2026-09-09)
-					D.coNote = api.gui.comp.TextView.new("")
-					-- password: used by "new company" (locks the new one), by "switch"/"dissolve"
-					-- (the attempt), and by "set password" (your own company; empty clears)
-					pcall(function()
-						local mk = api.gui.comp.TextInputField
-						local ok1, inp = pcall(function() return mk.new() end)
-						if not ok1 then inp = mk.new("") end
-						D.coPwInput = inp
-						pcall(function() D.coPwInput:setMinimumSize(api.gui.util.Size.new(180, 26)) end)
-						pcall(function() D.coPwInput:setMaximumSize(api.gui.util.Size.new(260, 26)) end)
-					end)
-					local prow = api.gui.layout.BoxLayout.new("HORIZONTAL")
-					-- Password heading sits above the input, leaving room for its action.
-					if D.coPwInput then prow:addItem(D.coPwInput) end
-					prow:addItem(speedBtn("Set password", function() if D.coMine then D.coHint = (coPw() ~= "" and "setting" or "clearing") .. " the password on company " .. D.coMine .. "..."; coRequest("CMPW", D.coMine) end end))
-					local prowC = api.gui.comp.Component.new("mpCompanyPwRow")
-					prowC:setLayout(prow)
-					local crowC = api.gui.comp.Component.new("mpCompanyRow")
-					crowC:setLayout(crow)
-					-- STATION PERMISSIONS (2026-09-16): who may stop at your stations. The
-					-- selected company (the dropdown above) is allowed or denied; everyone /
-					-- nobody set the whole list. "CMOPEN who on" goes through the inject
-					-- file like the other company commands (companies.lua CMOPEN).
-					local function coOpen(who, on)
-						local f = io.open(K.BASE .. "lockstep_inject_" .. (K.INSTANCE or "a") .. ".txt", "a")
-						if f then f:write("CMOPEN " .. tostring(who) .. " " .. tostring(on) .. string.char(10)); f:close() end
-					end
-					local orow = api.gui.layout.BoxLayout.new("HORIZONTAL")
-					D.coOpenText = api.gui.comp.TextView.new("Open to: -")
-					-- Keep the permission summary above its actions, avoiding a very wide window.
-					local allAccess = api.gui.layout.BoxLayout.new("HORIZONTAL")
-					orow:addItem(speedBtn("  allow selected  ", function() if D.coSel and D.coSel ~= D.coMine then coOpen(D.coSel, 1) end end))
-					orow:addItem(speedBtn("  deny selected  ", function() if D.coSel and D.coSel ~= D.coMine then coOpen(D.coSel, 0) end end))
-					allAccess:addItem(speedBtn("Allow everyone", function() coOpen("*", 1) end))
-					allAccess:addItem(speedBtn("Deny everyone", function() coOpen("*", 0) end))
-					local orowC = api.gui.comp.Component.new("mpCompanyOpenRow")
-					orowC:setLayout(orow)
-					local coL = api.gui.layout.BoxLayout.new("VERTICAL")
-					coL:addItem(mrowC); coL:addItem(crowC)
-					local actionsC = api.gui.comp.Component.new("mpCompanyActions")
-					actionsC:setLayout(companyActions); coL:addItem(actionsC)
-					coL:addItem(api.gui.comp.TextView.new("Company password")); coL:addItem(prowC)
-					coL:addItem(api.gui.comp.TextView.new("Station access")); coL:addItem(D.coOpenText); coL:addItem(orowC)
-					local allAccessC = api.gui.comp.Component.new("mpCompanyAllAccess")
-					allAccessC:setLayout(allAccess); coL:addItem(allAccessC); coL:addItem(D.coNote)
-					D.coBox = api.gui.comp.Component.new("mpCompanies")
-					D.coBox:setLayout(coL)
-					box:addItem(D.coBox)
+					-- ---- companies (rewritten 2026-09-27): companies_gui.lua builds the tab ----
+					CM.coGuiBuild(D, box)
 					local chatL = api.gui.layout.BoxLayout.new("VERTICAL")
 					D.chatText = api.gui.comp.TextView.new("No messages yet.")
 					chatL:addItem(D.chatText)
@@ -2187,92 +2087,8 @@ function data()
 					if not okW and not D.statsErrLogged then D.statsErrLogged = true; print("[ls-gui] stats in words: " .. tostring(errW)) end
 				end
 				pcall(function()
-					if D.coNameText and mine then
-						local roster = {}
-						for id in tostring(mine.roster or ""):gmatch("%d+") do roster[#roster + 1] = tonumber(id) end
-						local played = {}
-						for id, who in tostring(mine.played or ""):gmatch("(%d+):([%a,]+)") do played[tonumber(id)] = who end
-						local locked = {}
-						for id in tostring(mine.colocked or ""):gmatch("%d+") do locked[tonumber(id)] = true end
-						local names = {}
-						for id, n in tostring(mine.conames or ""):gmatch("(%d+):(%S+)") do names[tonumber(id)] = CM.unescName(n) end
-						D.coRoster, D.coPlayed, D.coMine, D.coLocked, D.coNames = roster, played, tonumber(mine.company), locked, names
-						if (guiTick % 30) == 0 or not D.coNamesRead then D.coNamesRead = true; pcall(CM.readPlayerNames) end
-						-- a company's name as the sim decided it (companies.lua CM.cmNameOf: the
-						-- name given in the game's company window, else the founder's)
-						local function coName(cid)
-							local n = names[cid]
-							if n and n ~= "" then return n end
-							return "Company " .. tostring(cid)
-						end
-						if not D.coSel then D.coSel = D.coMine end
-						-- the dropdown: every company by name, alphabetical; a company with more
-						-- than one player also lists the others
-						local items = {}
-						for _, cid in ipairs(roster) do
-							local who = {}
-							for l in tostring(played[cid] or ""):gmatch("%a+") do who[#who + 1] = CM.playerNameOf(l) end
-							local label = coName(cid) .. (cid == D.coMine and "  (mine)" or "") .. (locked[cid] and "  [password]" or "")
-								.. (#who == 0 and "  (empty)" or (#who > 1 and ("  (" .. table.concat(who, ", ") .. ")") or ""))
-							items[#items + 1] = { cid = cid, label = label }
-						end
-						table.sort(items, function(p, q) if p.label:lower() == q.label:lower() then return p.cid < q.cid end return p.label:lower() < q.label:lower() end)
-						local sig = {}
-						for _, it in ipairs(items) do sig[#sig + 1] = it.cid .. "=" .. it.label end
-						sig = table.concat(sig, "|")
-						if sig ~= D.coItemsSig and D.coPickL then
-							D.coItemsSig, D.coItems = sig, items
-							local old = D.coCombo
-							local cb = api.gui.comp.ComboBox.new()
-							for _, it in ipairs(items) do cb:addItem(it.label) end
-							D.coRebuilding = true
-							cb:onIndexChanged(function(i)
-								if D.coRebuilding then return end
-								local it = D.coItems and D.coItems[(tonumber(i) or -1) + 1]
-								if it then D.coSel = it.cid end
-							end)
-							if old then
-								local okR = pcall(function() D.coPickL:removeItem(old) end)
-								if not okR then pcall(function() old:setVisible(false, false) end) end
-							end
-							D.coPickL:addItem(cb)
-							D.coCombo = cb
-							local at = nil
-							for i, it in ipairs(items) do if it.cid == D.coSel then at = i - 1 end end
-							if not at and #items > 0 then at = 0; D.coSel = items[1].cid end
-							if at then pcall(function() cb:setSelected(at, false) end) end
-							D.coRebuilding = false
-						end
-						-- the swatches follow the ids (see D.coSwMine); the name follows the registry
-						local mineCls = "mpCo" .. tostring(math.max(1, math.min(200, D.coMine or 1)))
-						if D.coSwMine and D.coSwMineCls ~= mineCls then D.coSwMineCls = mineCls; pcall(function() D.coSwMine:setStyleClassList({ mineCls }) end) end
-						local selCls = "mpCo" .. tostring(math.max(1, math.min(200, D.coSel or D.coMine or 1)))
-						if D.coSwSel and D.coSwSelCls ~= selCls then D.coSwSelCls = selCls; pcall(function() D.coSwSel:setStyleClassList({ selCls }) end) end
-						local mineName = D.coMine and coName(D.coMine) or "-"
-						if mineName ~= D.coNameShown then D.coNameShown = mineName; D.coNameText:setText(" " .. mineName .. "   ") end
-						-- what our stations are open to, from the sim's coopen= ("1:* 2:1,3 3:-")
-						if D.coOpenText and D.coMine then
-							local code = tostring(mine.coopen or ""):match("%f[%d]" .. D.coMine .. ":(%S+)") or "*"
-							local text
-							if code == "*" then text = "everyone"
-							elseif code == "-" then text = "nobody"
-							else
-								local ns = {}
-								for v in code:gmatch("%d+") do ns[#ns + 1] = coName(tonumber(v)) end
-								text = table.concat(ns, ", ")
-							end
-							local line = "Open to: " .. text
-							if line ~= D.coOpenShown then D.coOpenShown = line; pcall(function() D.coOpenText:setText(line) end) end
-						end
-						local note = mine.conote or ""
-						if note ~= "" and note ~= D.coNoteSeen then D.coNoteSeen = note; D.coHint = nil end
-						-- while somebody loads in, say so in place of the last note
-						if (guiTick % 30) == 0 and CM.cmLoadingPlayers then
-							local loading = CM.cmLoadingPlayers()
-							D.coLoadingNote = (#loading > 0) and CM.cmLoadingNote(loading) or nil
-						end
-						if D.coNote then D.coNote:setText("   " .. (D.coHint or D.coLoadingNote or note)) end
-					end
+					-- the COMPANIES tab (companies_gui.lua): the sim's company lines -> the widgets
+					if D.coBox then CM.coGuiRefresh(D, mine, guiTick) end
 					if D.chatText and (guiTick % 30) == 0 then
 						local lines = CM.chatTail(8)
 						if #lines > 0 then D.chatText:setText(table.concat(CM.chatWrap(lines), string.char(10))) end

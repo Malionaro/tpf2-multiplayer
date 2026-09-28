@@ -3065,6 +3065,29 @@ static void writePlayerNames()
     WriteFile(h, loading.c_str(), (DWORD)loading.size(), &w, nullptr); CloseHandle(h);
 }
 
+// The text of the JSON object that follows "key" ({...}, braces and strings
+// matched), or "" when there is none. A name looked up in it cannot land in the
+// NEXT object: with "stages":{} the old unbounded strstr found "Max" in
+// "letters":{"Max":"b"} after it, every player read as loading with the stage "b",
+// and company changes were refused for good (2026-09-27, both games in sync).
+static std::string jsonObjectText(const char* s, const char* key)
+{
+    const char* k = strstr(s, key);
+    if (!k) return std::string();
+    const char* b = k + strlen(key);
+    while (*b == ' ' || *b == '\t' || *b == ':') b++;
+    if (*b != '{') return std::string();
+    int depth = 0; bool str = false;
+    for (const char* p = b; *p; ++p) {
+        const char c = *p;
+        if (str) { if (c == '\\' && p[1]) { ++p; continue; } if (c == '"') str = false; continue; }
+        if (c == '"') str = true;
+        else if (c == '{') depth++;
+        else if (c == '}' && --depth == 0) return std::string(b, p + 1);
+    }
+    return std::string();
+}
+
 // parse a roster event: "players":["a","b"], "you":"a", "host":"a"
 static void applyRoster(const char* s)
 {
@@ -3085,7 +3108,8 @@ static void applyRoster(const char* s)
             } } }
     g_companies.assign(g_players.size(), 1); g_letters.assign(g_players.size(), std::string());
     // "companies":{"name":id,...} -> g_companies[i] for each roster entry (default 1)
-    const char* co = strstr(s, "\"companies\"");
+    const std::string coObj = jsonObjectText(s, "\"companies\"");
+    const char* co = coObj.empty() ? nullptr : coObj.c_str();
     for (int i = 0; co && i < playerCount(); i++) {
         std::string keyq = "\"" + jsonEscape(g_players[i].c_str()) + "\"";
         const char* k = strstr(co, keyq.c_str());
@@ -3100,7 +3124,8 @@ static void applyRoster(const char* s)
       InterlockedExchange(&g_joinFreeze, (jf && strstr(jf, "true") && strstr(jf, "true") < jf + 24) ? 1 : 0); }
     // "stages":{"name":"text",...} -> g_stages[i]: what each joiner is doing
     g_stages.assign(g_players.size(), std::string());
-    { const char* sg = strstr(s, "\"stages\"");
+    { const std::string sgObj = jsonObjectText(s, "\"stages\"");
+      const char* sg = sgObj.empty() ? nullptr : sgObj.c_str();
       for (int i = 0; sg && i < playerCount(); i++) {
           std::string keyq = "\"" + jsonEscape(g_players[i].c_str()) + "\"";
           const char* k = strstr(sg, keyq.c_str());
@@ -3113,7 +3138,8 @@ static void applyRoster(const char* s)
     InterlockedExchange(&g_lobbyRelay, jsonBool(s, "relay", false) ? 1 : 0);
     InterlockedExchange(&g_storedAge, jsonInt(s, "stored_age")); InterlockedExchange(&g_storedMax, jsonInt(s, "stored_max"));
     // the lobby assigns every player a sticky origin letter
-    { const char* lm = strstr(s, "\"letters\"");
+    { const std::string lmObj = jsonObjectText(s, "\"letters\"");
+      const char* lm = lmObj.empty() ? nullptr : lmObj.c_str();
       if (lm) {
           for (int i = 0; i < playerCount(); i++) {
               std::string keyq = "\"" + jsonEscape(g_players[i].c_str()) + "\"";
