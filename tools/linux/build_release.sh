@@ -310,6 +310,7 @@ install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_10c327a7.md" "$STAGE/UPSTREAM_dev
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_a896a1cb.md" "$STAGE/UPSTREAM_dev_a896a1cb.md"
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_e516c9bc.md" "$STAGE/UPSTREAM_dev_e516c9bc.md"
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_30eba2da.md" "$STAGE/UPSTREAM_dev_30eba2da.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_a40180f2.md" "$STAGE/UPSTREAM_dev_a40180f2.md"
 for f in LICENSE THIRD_PARTY_NOTICES.md; do [ ! -f "$REPO/$f" ] || install -m 0644 "$REPO/$f" "$STAGE/$f"; done
 printf '%s\n' "$VERSION" >"$STAGE/VERSION"
 
@@ -325,7 +326,7 @@ CXX=$(sed -n 's/^CMAKE_CXX_COMPILER:[A-Z]*=//p' "$BUILD/CMakeCache.txt" | head -
     echo "compiler: ${CXX:-?} inside soldier SDK (version below)"
   fi
   echo "game:     Transport Fever 2, Steam Linux build 35924 (build-id 3a0e156390b0e6f1e372051c24802c8493ae454a)"
-  echo "Lua: Windows dev 30eba2da (30eba2dad44f48880200ddd2d81ba200b2b66551), release 0.7.1.2 (exact upstream, including Linux origin replay)"
+  echo "Lua: Windows dev a40180f2 (a40180f21683d7a896c3210699b35d4cc5192a60), release 0.7.1.2 (exact upstream, including Linux origin replay)"
   echo "Bundled Big Maps native source: imported 4769cd3; see BIGMAP_PORT.md for limits"
   if [ -n "$BIGMAP_REPO" ]; then echo "Big Maps: $BIGMAP_REPO $(git -C "$BIGMAP_REPO" rev-parse HEAD) (working tree built)"; fi
   echo "libraries: ${LIBS[*]}"

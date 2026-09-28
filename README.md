@@ -1,10 +1,12 @@
 # TpF2 Multiplayer — Transport Fever 2 multiplayer mod
 
-Current release integration: **0.7.1.2**, Windows dev `30eba2da`; see the
-[integration and validation record](docs/linux/UPSTREAM_dev_30eba2da.md). All peers, including dedicated
+Current release integration: **0.7.1.2**, Windows dev `a40180f2`; see the
+[integration and validation record](docs/linux/UPSTREAM_dev_a40180f2.md). All peers, including dedicated
 servers, must update. Existing native Sandbox town-tool capture, minimap and
 cargo-filter limitations remain. Upstream performance measurements were not
 repeated locally; matching release numbers do not establish gameplay parity.
+Completed TCP transfers no longer stay in lobby memory through listener
+registrations; active transfers retain their handlers until they finish.
 Catching-up peers retain recently heard leader clocks when stamping commands
 and defer spare-line requests until catch-up completes.
 Dedicated servers pause while players join an otherwise empty server, and cap
