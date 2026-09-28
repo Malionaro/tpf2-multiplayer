@@ -7,9 +7,9 @@ cargo-filter limitations remain. Upstream performance measurements were not
 repeated locally; matching release numbers do not establish gameplay parity.
 Catching-up peers retain recently heard leader clocks when stamping commands
 and defer spare-line requests until catch-up completes.
-Native terrain sidecars remain experimental and off by default; material-index
-acceleration remains unported. The upstream 0.7.1.2 release notes do not supersede
-these Linux limits or establish new native performance results.
+Native terrain sidecars are on by default from 0.7.1.2 (the user's decision;
+first game use: the project's dedicated server; `terrain_sidecar=0` turns them
+off). Material-index acceleration remains unported.
 
 This release is for the **native Linux version** of Transport Fever 2 on Steam. If you run the
 Windows version through Proton, it does not apply.
