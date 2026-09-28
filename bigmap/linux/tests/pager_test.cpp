@@ -18,6 +18,23 @@ int main(){
     assert(TerrainTarget(0,16*GiB,0,12*GiB,GiB)==GiB);
     assert(TerrainTarget(32*GiB,UINT64_MAX,0,12*GiB,GiB)==GiB);
     assert(TerrainTarget(16*GiB,16*GiB,0,12*GiB,GiB)==4*GiB);
+    // dev 2b8505c: pressure releases only the shortfall, not a flat 256 MiB.
+    // Linux uses MemAvailable and its existing RAM reserve, not Windows commit.
+    constexpr uint64_t MiB=1ull<<20, reserve=32*GiB/7;
+    const uint64_t initial=2724*MiB, deficit=1536*MiB;
+    const uint64_t target=TerrainTarget(32*GiB,reserve-deficit,initial,12*GiB,GiB);
+    assert(target==1188*MiB);
+    // Repeated samples before eviction must not subtract from the old target.
+    for(int sample=0;sample<6;++sample)
+        assert(TerrainTarget(32*GiB,reserve-deficit,initial,12*GiB,GiB)==target);
+    // Partial/full reclaim increases available RAM by the bytes returned.
+    for(uint64_t reclaimed:{uint64_t(0),512*MiB,deficit})
+        assert(TerrainTarget(32*GiB,reserve-deficit+reclaimed,
+                             initial-reclaimed,12*GiB,GiB)==target);
+    assert(TerrainTarget(32*GiB,reserve,initial,12*GiB,GiB)==initial);
+    assert(TerrainTarget(32*GiB,reserve-1,initial,12*GiB,GiB)==initial-1);
+    assert(TerrainTarget(32*GiB,reserve-deficit,1024*MiB,12*GiB,GiB)==0);
+    puts("PASS: resident-based pressure shortfall, repeated samples and reclaim accounting");
     linux_pager::TerrainPager pager;
     if(!pager.Start(64,0)){puts("SKIP: userfaultfd unavailable");return 77;}
     {   // a new tile is real, zeroed memory: resident before its first write

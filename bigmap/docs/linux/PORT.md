@@ -536,3 +536,15 @@ the Windows preview-regeneration fix without a named cache file or Windows
 creation-time API. Native timestamp regression tests pass; the lab launch
 failed before game startup, so preview stability is not yet observed locally.
 See [the RE record](../../../docs/re/linux/DEV_568E7EA7.md).
+
+## Tight-budget shortfall — dev 2b8505c7
+
+Windows now releases only the commit shortfall from resident terrain/material
+bytes, retaining its emergency/load floor. Native automatic terrain budgeting
+already releases only its MemAvailable shortfall from current resident bytes;
+it has no flat 256 MiB pressure clamp. Added regression coverage for 2724 ->
+1188 MiB under a 1536 MiB shortfall, repeated samples and reclaim progress.
+Native policy is unchanged. Windows commit accounting and Linux physical-memory
+headroom are different inputs; this does not add a native material pager or
+Windows load/commit controller. See [comparison and evidence](../../../docs/re/linux/DEV_2B8505C7.md).
+No new game run or performance measurement was made for this integration.
