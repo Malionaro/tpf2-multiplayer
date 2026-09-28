@@ -687,6 +687,7 @@ function CM.groundAt(x, y)
 	pcall(function() z = game.interface.getHeight({ x, y }) or 0 end)
 	return z or 0
 end
+LS.groundAt = CM.groundAt   -- the LS export above ran before this was defined
 
 -- ---------- command reliability (NACK + resend), encode/decode, scheduleLocal, onLine, pollEvents ----------
 -- Lives in res/scripts/mp/net.lua.
