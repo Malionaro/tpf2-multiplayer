@@ -1,5 +1,9 @@
 # TpF2 Multiplayer on Linux: install, uninstall, logs
 
+The [dev `304a4e28` integration](UPSTREAM_dev_304a4e28.md) adds catch-up progress
+logging about every 20 seconds: remaining gap, closing rate, local and session
+rates, and an ETA when the gap is closing. Shared Lua; release remains 0.7.1.2.
+
 The [dev `86f806df` integration](UPSTREAM_dev_86f806df.md) keeps
 terrain streams running across later STARTs, avoiding replacement while a
 joiner reads the same sidecar. Shared Linux/Windows lobby; release 0.7.1.2.
