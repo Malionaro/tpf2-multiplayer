@@ -161,7 +161,10 @@ The offline mock cannot settle these. Each is logged or visible:
     names any type still generic.
 11. **Roadside stops** should appear as small bars on their streets.
 
-**The M key** (`minimap_key=1`, on by default) toggles the minimap like its button.
+**The M key** is left to the game by default (`minimap_key=0`); use the toolbar
+button to open the Windows minimap. Set `minimap_key=1` to make M toggle it too.
+Native Linux has no minimap or minimap key interceptor; this setting does not
+enable either there. The following interception details apply to Windows.
 It replaces the game's own M (`constructOpt1`, the construction option key): the
 plugin takes the press and its release out of the game's SDL events through the
 exe's `SDL_PollEvent` import. It leaves M alone while a text field is taking keys
