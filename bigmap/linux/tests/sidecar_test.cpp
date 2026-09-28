@@ -90,6 +90,56 @@ int main() {
     assert(linux_sidecar::SavPath(&id) == g_dir + "/ServerSave.sav");
     auto bad = Id("../x"); assert(linux_sidecar::SavPath(&bad).empty());
 
+    // Alternate two persistent loader workers in separate grid halves. Shared
+    // cursors need ~half a grid per lookup; TLS needs N + N/2 probes total.
+    {
+        constexpr int count = 480, half = count / 2;
+        alignas(8) uint8_t grid[0x18]{};
+        std::vector<uint64_t> records(count * 5);
+        *reinterpret_cast<int32_t*>(grid + 8) = count;
+        *reinterpret_cast<int32_t*>(grid + 12) = 1;
+        *reinterpret_cast<void**>(grid + 16) = records.data();
+        for (int i = 0; i < count; ++i) {
+            records[i * 5] = 1000 + i;
+            records[i * 5 + 1] = reinterpret_cast<uintptr_t>(grid);
+        }
+        TerrainSidecar::Grid g{grid};
+        std::atomic<int> turn{0}, ready{0};
+        std::atomic<bool> reload{false};
+        uint64_t totals[2]{};
+        auto worker = [&](int me) {
+            uint32_t probes = 0;
+            for (int k = 0; k < half; ++k) {
+                while (turn.load() != me) std::this_thread::yield();
+                assert(linux_sidecar::FindRecord(g, 1000 + me * half + k, &probes) == me * half + k);
+                totals[me] += probes;
+                turn.store(1 - me);
+            }
+            // Leave both cursors away from zero, then reload the SAME grid.
+            assert(linux_sidecar::FindRecord(g, 1010) == 10);
+            ready.fetch_add(1);
+            while (!reload.load()) std::this_thread::yield();
+            assert(linux_sidecar::FindRecord(g, 1000, &probes) == 0 && probes == 1);
+        };
+        std::thread a(worker, 0), b(worker, 1);
+        while (ready.load() != 2) std::this_thread::yield();
+        linux_sidecar::LoadHook(nullptr, nullptr, nullptr, &id, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+        reload.store(true);
+        a.join(); b.join();
+        printf("two native lookup threads: %llu probes for %d tiles\n", (unsigned long long)(totals[0] + totals[1]), count);
+        assert(totals[0] + totals[1] == count + half);
+        uint32_t probes;
+        assert(linux_sidecar::FindRecord(g, 1479, &probes) == 479);
+        assert(linux_sidecar::FindRecord(g, 1000, &probes) == 0 && probes == 1);
+        assert(linux_sidecar::FindRecord(g, -1, &probes) == -1 && probes == count);
+        records[5 + 1] = 0;
+        assert(linux_sidecar::FindRecord(g, 1001, &probes) == -1 && probes == count);
+        alignas(8) uint8_t other[sizeof grid]; memcpy(other, grid, sizeof grid);
+        assert(linux_sidecar::FindRecord(TerrainSidecar::Grid{other}, 1000, &probes) == 0 && probes == 1);
+        *reinterpret_cast<int32_t*>(other + 8) = 0;
+        assert(linux_sidecar::FindRecord(TerrainSidecar::Grid{other}, 1000, &probes) == -1 && probes == 0);
+    }
+
     Fake f;
     f.Fill(3);
     std::vector<uint16_t> want[N];

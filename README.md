@@ -489,3 +489,7 @@ The [dev `b6d73041` integration](docs/linux/UPSTREAM_dev_b6d73041.md) retains Wi
 4 GiB maximum automatic free-commit threshold and `commit_tight_mb` override.
 Native terrain paging continues to use `MemAvailable`; this Windows setting
 has no native effect. Release remains 0.7.1.1.
+
+The [dev `5fd49a24` integration](docs/linux/UPSTREAM_dev_5fd49a24.md) gives
+native terrain-sidecar lookups a cursor per thread, reset for each load and
+grid. Sidecars remain experimental and default off; no live speedup is claimed.

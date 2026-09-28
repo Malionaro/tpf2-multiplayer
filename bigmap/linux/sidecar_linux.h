@@ -221,19 +221,31 @@ inline void* PickTerrain(char* why, size_t cap) {
     }
     return best;
 }
-inline long FindRecord(const TerrainSidecar::Grid& g, int entity) {
-    static std::atomic<uint32_t> cursor{0};
+// The record AddTile just filled, scanning from THIS thread's last hit in this
+// grid: the load adds tiles on two threads in different parts of the grid, and
+// one shared cursor made every scan start where the other thread had been
+// (Windows 2026-09-28: ~30,000 probes per tile; see terrain_serve.h FindRecord).
+inline std::atomic<uint64_t>& CursorGeneration() { static std::atomic<uint64_t> gen{0}; return gen; }
+// Optional probe count supports regression measurement without shared hot-loop atomics.
+inline long FindRecord(const TerrainSidecar::Grid& g, int entity, uint32_t* probes = nullptr) {
+    struct Cursor { const uint8_t* grid; uint32_t next; uint64_t generation; };
+    static thread_local Cursor c = {nullptr, 0, 0};
+    if (probes) *probes = 0;
     const uint32_t n = g.nx() > 0 && g.ny() > 0 ? uint32_t(g.nx()) * uint32_t(g.ny()) : 0;
     if (!n) return -1;
-    const uint32_t start = cursor.load() % n;
+    const uint64_t gen = CursorGeneration().load(std::memory_order_relaxed);
+    if (c.grid != g.base || c.generation != gen) { c.grid = g.base; c.next = 0; c.generation = gen; }
+    const uint32_t start = c.next % n;
     for (uint32_t k = 0; k < n; ++k) {
         uint32_t i = start + k; if (i >= n) i -= n;
         const uint8_t* r = g.record(i);
         if (*reinterpret_cast<const int32_t*>(r) == entity && *reinterpret_cast<uint8_t* const*>(r + 8)) {
-            cursor.store(i + 1 < n ? i + 1 : 0);
+            if (probes) *probes = k + 1;
+            c.next = i + 1 < n ? i + 1 : 0;
             return long(i);
         }
     }
+    if (probes) *probes = n;
     return -1;
 }
 inline void AddTileHook(void* terrain, int entity, uint64_t a, uint64_t b, uint64_t c, uint64_t d) {
@@ -353,6 +365,8 @@ using LoadFn = void* (*)(void*, void*, void*, const SaveGameId*, void*, void*, v
 inline LoadFn& OriginalLoad() { static LoadFn f = nullptr; return f; }
 inline void* LoadHook(void* ret, void* ctx, void* mods, const SaveGameId* id, void* a4, void* a5, void* s0, void* s1, void* s2, void* s3, void* s4) {
     if (!Enabled().load()) return OriginalLoad()(ret, ctx, mods, id, a4, a5, s0, s1, s2, s3, s4);
+    // Worker threads can survive loads and the allocator can reuse grid addresses.
+    CursorGeneration().fetch_add(1, std::memory_order_relaxed);
     ForgetTerrains();
     S().Reset();
     TerrainSidecar::EndApply();

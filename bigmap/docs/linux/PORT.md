@@ -624,3 +624,12 @@ physical-memory headroom. Native terrain paging retains RAM/7 headroom bounded
 to 2..12 GiB and a RAM/4 cap bounded to 4..8 GiB, using `MemAvailable` without
 swap. `commit_tight_mb` has no native effect. Native UFFD restores do not wait
 on a commit-tight throttle. See [source evidence](../../../docs/re/linux/DEV_B6D73041.md).
+
+## Thread-local sidecar lookup (dev 5fd49a24)
+
+Native record scans retain a thread-local grid/index hint and reset it on each
+load using an atomic generation, including when a grid address is reused.
+The native regression requires 720 probes for 480 alternating-worker lookups
+and checks surviving workers after LoadHook. No engine ABI or patch changes;
+sidecars remain experimental and default off. See the
+[integration record](../../../docs/linux/UPSTREAM_dev_5fd49a24.md).
