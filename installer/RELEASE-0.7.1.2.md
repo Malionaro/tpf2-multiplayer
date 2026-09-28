@@ -16,8 +16,8 @@ The rewrite tested as 0.7.0.8 is now in the release, on every platform:
 
 ### Big maps load much faster
 
-- **The terrain is not computed again on load.** Every save now writes `<save>.terr` beside it: each terrain tile's finished height data. Loading that save restores the tiles from it and skips the terrain alignment pass, which took 44-75 s on a 50,000-tile map. On Windows and the native Linux game (a dedicated server too).
-- **Joiners get the host's terrain file while they load.** It streams to them after START. Each tile is used as soon as it arrives, and the game waits for the rest only when that is faster than computing it. A joiner on a slow connection loads as before.
+- **The terrain is not computed again on load.** Every save now writes `<save>.terr` beside it: each terrain tile's finished height data. Loading that save restores the tiles from it and skips the terrain alignment pass, which took 44-75 s on a 50,000-tile map. On Windows and the native Linux game, a Linux dedicated server included (new there: `terrain_sidecar=0` in `tpf2_bigmap.cfg` turns it off if it gives trouble).
+- **Joiners get the host's terrain file while they load.** It streams to them after START from a host that has one. Each tile is used as soon as it arrives, and the game waits for the rest only when that is faster than computing it. A joiner on a slow connection loads as before.
 - The terrain file is written on all cores (it added 12 s to every big-map save) and read on all cores at load.
 - The ground-texture index is built faster (up to 2x per tile, identical result).
 
@@ -37,4 +37,4 @@ Use the launcher: **Update & play** (Windows and Linux), or install directly: th
 
 ### Validation
 
-The terrain file was tested on a 36,992-tile save: both alignment passes skipped, all 73,984 tile versions served, on Windows, and on Windows with the file streamed to a second game (bigmap tests on Windows and 76 native Linux tests, including a growing file, a split record and a wait at the pass; tools/test_terrain_stream.py on a lossy, reordering connection). The load-memory fix has a test that fails on 0.7.1.1. The ground-texture index matches the game's own code in 156 comparisons. The companies rewrite passed its model, rules and interface tests (0.7.0.8) and is ported to the native Linux game.
+The terrain file was tested in game on a 36,992-tile save on Windows: both alignment passes skipped, all 73,984 tile versions served, also with the file streamed to a second game. The native Linux code passes 76 tests (including a growing file, a split record and a wait at the pass); its first game use is the project's dedicated server with this release. tools/test_terrain_stream.py tests the transfer on a lossy, reordering connection. The load-memory fix has a test that fails on 0.7.1.1. The ground-texture index matches the game's own code in 156 comparisons. The companies rewrite passed its model, rules and interface tests (0.7.0.8) and is ported to the native Linux game.

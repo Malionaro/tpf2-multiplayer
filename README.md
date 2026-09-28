@@ -1,15 +1,16 @@
 # TpF2 Multiplayer — Transport Fever 2 multiplayer mod
 
-Current release integration: **0.7.1.2**, Windows dev `10c327a7`; see the
-[integration and validation record](docs/linux/UPSTREAM_dev_10c327a7.md). All peers, including dedicated
+Current release integration: **0.7.1.2**, Windows dev `71549cff`; see the
+[integration and validation record](docs/linux/UPSTREAM_dev_71549cff.md). All peers, including dedicated
 servers, must update. Existing native Sandbox town-tool capture, minimap and
 cargo-filter limitations remain. Upstream performance measurements were not
 repeated locally; matching release numbers do not establish gameplay parity.
 Catching-up peers retain recently heard leader clocks when stamping commands
 and defer spare-line requests until catch-up completes.
-Native terrain sidecars remain experimental and off by default; material-index
-acceleration remains unported. The upstream 0.7.1.2 release notes do not supersede
-these Linux limits or establish new native performance results.
+Native terrain sidecars are on by default from dev `71549cff` in 0.7.1.2;
+`terrain_sidecar=0` disables them. Live ownership and load-completion checks
+remain outstanding; material-index acceleration remains unported. Enabling
+sidecars does not establish new native performance results.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -44,8 +45,9 @@ adds native terrain pager recency, automatic memory headroom and fault-rate
 logging; loaded-big-map performance validation remains outstanding.
 The Windows MSI instructions below apply to the Windows version.
 The subsequent [dev `60d237c5` integration](docs/linux/UPSTREAM_dev_60d237c5.md)
-retains the Windows autosave-sidecar fix; native terrain sidecars are now available experimentally, default off, in
-[dev `2b4fd093`](docs/linux/UPSTREAM_dev_2b4fd093.md). Live lifetime validation remains blocked.
+retains the Windows autosave-sidecar fix; native terrain sidecars were introduced experimentally, default off, in
+[dev `2b4fd093`](docs/linux/UPSTREAM_dev_2b4fd093.md), then enabled by default in
+[dev `71549cff`](docs/linux/UPSTREAM_dev_71549cff.md). Live lifetime validation remains outstanding.
 
 ## How it works
 
