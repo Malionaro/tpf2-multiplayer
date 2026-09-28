@@ -1,7 +1,7 @@
 # TpF2 Multiplayer — Transport Fever 2 multiplayer mod
 
-Current release integration: **0.7.1.2**, Windows dev `3d6881e6`; see the
-[integration and validation record](docs/linux/UPSTREAM_dev_3d6881e6.md). All peers, including dedicated
+Current release integration: **0.7.1.2**, Windows dev `e516c9bc`; see the
+[integration and validation record](docs/linux/UPSTREAM_dev_e516c9bc.md). All peers, including dedicated
 servers, must update. Existing native Sandbox town-tool capture, minimap and
 cargo-filter limitations remain. Upstream performance measurements were not
 repeated locally; matching release numbers do not establish gameplay parity.
@@ -10,6 +10,8 @@ and defer spare-line requests until catch-up completes.
 Dedicated servers pause while players join an otherwise empty server, and cap
 the voted speed at 1x while someone joins existing players. A joiner stops
 holding the session after about 20 minutes without a change in joining count.
+Below 1x, command delay follows session speed with a ramp margin; recovery
+from a slow session rises in steps, and excess delay falls faster.
 Native terrain sidecars are on by default from dev `71549cff` in 0.7.1.2;
 `terrain_sidecar=0` disables them. Live ownership and load-completion checks
 remain outstanding; material-index acceleration remains unported. Enabling

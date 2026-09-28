@@ -721,6 +721,9 @@ function CM.hostCapacityCap(eff, applied, s, now)
 	return eff, nil
 end
 
+K.SPEED_RAMP = 1.25        -- a session under 1x rises by at most this factor per step...
+K.SPEED_RAMP_TICKS = 10    -- ...one step per this many ticks (~2 s: longer than a slow one-way trip)
+K.DELAY_RAMP_MARGIN = 1.6  -- net.lua: the delay under 1x covers a joiner's PID (1.2x) during one ramp step (1.25)
 function CM.governSpeed(now, eff)
 	if not eff or eff <= 0 then CM.govPrevNow, CM.govPrevTick = nil, nil; CM.govEmaLag, CM.govPrevSmoothed = nil, nil; return eff end
 	if CM.governorOff() then CM.govFactor, CM.govWorst, CM.govWho = 1, 0, nil; CM.govEmaLag, CM.govPrevSmoothed = nil, nil; return eff end
@@ -1147,6 +1150,21 @@ function CM.paceV2(now)
 		-- the governor works under the votes (or the request): the slowest peer sets the pace
 		local governed = CM.governSpeed(now, eff)
 		if governed ~= eff then eff = governed; why = string.format("governed: %s is %.1f behind", tostring(CM.govWho or "?"), CM.govWorst or 0) end
+		-- RAMP BELOW 1x (2026-09-28): under 1x the command delay is sized by the session
+		-- speed (net.lua CM.execDelayTick), so a sudden rise -- a 4x vote landing on a
+		-- governed 0.25x -- would outrun commands already in flight. A rise from under
+		-- 1x goes up K.SPEED_RAMP at a time, one step per K.SPEED_RAMP_TICKS; the delay
+		-- carries K.DELAY_RAMP_MARGIN for one step. From 1x up nothing changes.
+		local cur = CM.effSpeed or 0
+		if eff > 0 and cur > 0 and cur < 1 and eff > cur * K.SPEED_RAMP then
+			if (CM.ticks - (CM.rampAt or -1000)) >= K.SPEED_RAMP_TICKS then
+				CM.rampAt = CM.ticks
+				local step = math.max(cur + 0.05, math.floor(cur * K.SPEED_RAMP / 0.05) * 0.05)
+				if step < eff then eff = step; why = why .. string.format(" (ramping up from %g)", cur) end
+			else
+				eff = cur
+			end
+		end
 		CM.syncTick(now, s)
 		local changed = (eff ~= CM.effSpeed)
 		local recounted = (vt ~= CM.voteCounted)
