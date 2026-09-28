@@ -38,6 +38,7 @@ import socket
 import sys
 import threading
 import time
+import weakref
 
 BULK_MAGIC = b"TPF2BULK1"
 PIPE_MAGIC = b"TPF2PIPE1"
@@ -57,7 +58,7 @@ class BulkListener:
     def __init__(self, port, log=lambda _: None, bind="0.0.0.0"):
         self.port = int(port)
         self.log = log
-        self._expect = {}        # (sid, role) -> (token, handler)
+        self._expect = {}        # (sid, role) -> (token, handler ref): see expect()
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._pending = 0
@@ -109,9 +110,18 @@ class BulkListener:
 
     def expect(self, sid, role, token, handler):
         """Accept a hello for (sid, role) carrying ``token``; ``handler(sock,
-        addr, name)`` then owns the socket on the accept thread's helper."""
+        addr, name)`` then owns the socket on the accept thread's helper.
+
+        A bound method is held WEAKLY: the registration ends when its transfer
+        is dropped. Held strongly (until 0.7.1.2) every transfer the lobby ever
+        made stayed alive here with its whole file -- nothing calls forget() --
+        and the dedicated server's lobby grew to 11.7 GB in 12 hours: nine
+        600 MB terrain files and eleven 380 MB saves (2026-09-28)."""
+        ref = weakref.WeakMethod(handler) if hasattr(handler, "__self__") else (lambda h=handler: h)
         with self._lock:
-            self._expect[(int(sid), role)] = (str(token), handler)
+            for key in [k for k, v in self._expect.items() if v[1]() is None]:
+                del self._expect[key]
+            self._expect[(int(sid), role)] = (str(token), ref)
 
     def forget(self, sid):
         with self._lock:
@@ -163,7 +173,8 @@ class BulkListener:
             name = parts[4].decode("utf-8", "replace") if len(parts) > 4 else ""
             with self._lock:
                 want = self._expect.get((sid, role))
-            if not want or want[0] != token:
+            handler = want[1]() if want else None
+            if handler is None or want[0] != token:
                 raise ValueError("unknown transfer or wrong token")
             c.sendall(b"OK\n")
             c.settimeout(None)
@@ -181,7 +192,7 @@ class BulkListener:
         with self._lock:
             self._pending -= 1
         try:
-            want[1](c, addr, name)
+            handler(c, addr, name)
         except Exception as e:                       # noqa: BLE001 -- a handler bug must not kill the thread pool
             self.log(f"[bulk] handler error for sid={sid} {role}: {e!r}")
             try:
@@ -373,5 +384,20 @@ if __name__ == "__main__":
     assert stream_recv(c, len(blob), got.extend)
     log(f"received {rate_text(len(got), time.perf_counter() - t)}; equal={bytes(got) == blob}")
     assert bulk_connect("127.0.0.1", lst.port, "recv", 7, "wrong", "me") is None
+
+    class Transfer:                      # a transfer registers a bound method, which must not keep it alive
+        def __init__(self):
+            self.blob = bytearray(1 << 20)
+
+        def serve(self, c, addr, name):
+            stream_send(c, self.blob)
+    t = Transfer()
+    lst.expect(8, "recv", "tok8", t.serve)
+    gone = weakref.ref(t)
+    del t
+    assert gone() is None, "the listener kept a dropped transfer alive"
+    assert bulk_connect("127.0.0.1", lst.port, "recv", 8, "tok8", "me") is None
+    lst.expect(9, "recv", "tok9", serve)
+    assert (8, "recv") not in lst._expect, "a dead registration was not pruned"
     lst.close()
     print("bulk_tcp self-check OK")

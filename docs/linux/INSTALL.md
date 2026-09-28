@@ -1,12 +1,37 @@
 # TpF2 Multiplayer on Linux: install, uninstall, logs
 
-Current release integration: **0.7.1.2**, Windows dev `10c327a7`; see the
-[integration and validation record](UPSTREAM_dev_10c327a7.md). All peers, including dedicated
+The [dev `528294b1` integration](UPSTREAM_dev_528294b1.md) asks for a
+fresh host save when a late joiner would receive one over two minutes old,
+with fallback if no new save arrives. Host-loop stalls no longer count as
+peer silence. Shared lobby; release remains 0.7.1.2.
+
+The [dev `304a4e28` integration](UPSTREAM_dev_304a4e28.md) adds catch-up progress
+logging about every 20 seconds: remaining gap, closing rate, local and session
+rates, and an ETA when the gap is closing. Shared Lua; release remains 0.7.1.2.
+
+The [dev `86f806df` integration](UPSTREAM_dev_86f806df.md) keeps
+terrain streams running across later STARTs, avoiding replacement while a
+joiner reads the same sidecar. Shared Linux/Windows lobby; release 0.7.1.2.
+
+The [dev `effa7243` integration](UPSTREAM_dev_effa7243.md) prevents
+repeat save transfers while a joining player’s mods are packing, queued or
+being delivered. The shared lobby fix applies to native Linux and Windows;
+release remains 0.7.1.2.
+
+Current release integration: **0.7.1.3**, Windows dev `a813ea9f`; see the
+[integration and validation record](UPSTREAM_dev_a813ea9f.md). All peers, including dedicated
 servers, must update. Existing native Sandbox town-tool capture, minimap and
 cargo-filter limitations remain. Upstream performance measurements were not
 repeated locally; matching release numbers do not establish gameplay parity.
+Completed TCP transfers no longer stay in lobby memory through listener
+registrations; active transfers retain their handlers until they finish.
 Catching-up peers retain recently heard leader clocks when stamping commands
 and defer spare-line requests until catch-up completes.
+Dedicated servers pause while players join an otherwise empty server, and cap
+the voted speed at 1x while someone joins existing players. A joiner stops
+holding the session after about 20 minutes without a change in joining count.
+Below 1x, command delay follows session speed with a ramp margin; recovery
+from a slow session rises in steps, and excess delay falls faster.
 Native terrain sidecars are on by default from 0.7.1.2 (the user's decision;
 first game use: the project's dedicated server; `terrain_sidecar=0` turns them
 off). Material-index acceleration remains unported.
@@ -686,3 +711,7 @@ The [dev `0eb9eea2` integration](UPSTREAM_dev_0eb9eea2.md) lowers Windows’ aut
 free-commit threshold to 2..3 GiB (unknown RAM: 3 GiB). Native terrain paging
 retains its existing `MemAvailable` policy; `commit_tight_mb` has no native
 effect. Release remains 0.7.1.1.
+
+The [dev `a896a1cb` integration](UPSTREAM_dev_a896a1cb.md) fixes the native plugin host’s
+rejection of 5–13-byte hooks, including the terrain sidecar’s 13-byte AddTile
+hook. Release remains 0.7.1.2; local lab startup was blocked before the game ran.

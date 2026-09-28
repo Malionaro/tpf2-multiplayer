@@ -29,6 +29,46 @@ CM.histEndSeen=true
 CM.rxGaps=function() return 0 end
 assert(CM.catchUpTick(50,1)==4 and CM.cuPhase=="run")
 
+-- Catch-up diagnostics use elapsed wall time, only in the running phase.
+local realTime = os.time
+local wall, leader = 1000, 680
+os.time = function() return wall end
+CM.leaderPrecise = function() return leader end
+CM.cuRate = nil
+logs = {}
+assert(CM.catchUpTick(100,1)==4 and #logs==0)
+wall=1019; leader=699
+assert(CM.catchUpTick(140,1)==4 and #logs==0)
+wall=1020; leader=700
+assert(CM.catchUpTick(142,1)==4)
+assert(logs[1]=="CATCHUP: 558.0 unit(s) behind, closing 1.10/s (this game 2.10/s at 4x, the session 1.00/s) -- ~507 s to go")
+assert(CM.catchUpTick(142,1)==4 and #logs==1)
+-- A late tick divides by the actual 25 seconds, not a fixed interval.
+wall=1045; leader=725
+assert(CM.catchUpTick(192,1)==4)
+assert(logs[2]=="CATCHUP: 533.0 unit(s) behind, closing 1.00/s (this game 2.00/s at 4x, the session 1.00/s) -- ~533 s to go")
+-- A stationary or widening gap must not promise an ETA.
+wall=1065; leader=745
+assert(CM.catchUpTick(212,1)==4)
+assert(logs[3]=="CATCHUP: 533.0 unit(s) behind, closing 0.00/s (this game 1.00/s at 4x, the session 1.00/s)")
+wall=1085; leader=785
+assert(CM.catchUpTick(232,1)==4)
+assert(logs[4]=="CATCHUP: 553.0 unit(s) behind, closing -1.00/s (this game 1.00/s at 4x, the session 2.00/s)")
+leader=233
+assert(CM.catchUpTick(232,1)==nil and CM.cuRate==nil)
+-- A new episode drops stale samples while fetching; fetch time is excluded.
+CM.cuRate={wall=0,now=0,behind=999}
+leader=900
+assert(CM.catchUpTick(300,1)==0 and CM.cuRate==nil)
+wall=1185; logs={}
+assert(CM.catchUpTick(300,1)==0 and #logs==0 and CM.cuRate==nil)
+CM.histEndSeen=true
+assert(CM.catchUpTick(300,1)==4 and CM.cuRate.wall==1185)
+wall=1205; leader=920
+assert(CM.catchUpTick(340,1)==4)
+assert(logs[#logs]=="CATCHUP: 580.0 unit(s) behind, closing 1.00/s (this game 2.00/s at 4x, the session 1.00/s) -- ~580 s to go")
+os.time=realTime
+
 -- PID resets accumulated error on speed changes, unpause and zero crossing.
 CM.leaderPrecise=function() return 50 end
 CM.catchingUp2=false
@@ -56,4 +96,4 @@ CM.governorOff=function() return true end
 CM.governSpeed(50,1)
 assert(CM.govEmaLag==nil and CM.govPrevSmoothed==nil)
 ''')
-print('PASS: persistent history retries, recovery when complete, PID anti-windup, lag smoothing/reset')
+print('PASS: persistent history retries, recovery when complete, catch-up rate diagnostics, PID anti-windup, lag smoothing/reset')

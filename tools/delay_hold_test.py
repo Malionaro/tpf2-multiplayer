@@ -4,7 +4,7 @@ Loads the real mod/.../scripts/mp/net.lua into a lupa.lua52 runtime with a stub 
 and a settable os.clock, then drives:
   - CM.rttNote: RFC 6298 smoothing, absurd samples rejected
   - CM.execDelayTick: the delay from the worst fresh peer, the step grid, min/max,
-    rising at once and falling one step after K.DELAY_DOWN_TICKS, pinned mode
+    rising at once and falling halfway after K.DELAY_DOWN_TICKS, pinned mode
   - LSTICK parsing through CM.pollEvents: ms= stored, our echo e= becomes a round trip
   - CM.scheduleLocal: the stamp uses the current delay and an LSHI follows the LSCMD
   - CM.gapHoldNeed / CM.gapHoldTick: hold for a missing command due soon, not for one
@@ -410,6 +410,28 @@ peer(h, "b", 300, 40)
 tick(h)
 # one way 240 ms + one tick 190 ms = 430 ms at 3.6 u/s = 1.548 -> 1.6 (was 1.0 without the repeat)
 check("speed 4: 300+-40 ms plus one tick for the repeat -> 1.6 units", abs(h.CM.execDelayCur - 1.6) < 1e-9, h.CM.execDelayCur)
+
+# Below 1x the same slow link needs fewer simulation units, including ramp margin.
+for speed, rate, expected in ((0.25, 0, 0.6), (0.5, 0, 1.0),
+                              (0, 0, 1.2), (1, 0, 1.2),
+                              (0.25, 1.8, 2.2)):
+    L, h = runtime()
+    h.CM.effSpeed, h.CM.simRate = speed, rate
+    peer(h, "b", 1500, 400)  # 1.2 seconds one way including slack
+    tick(h)
+    check(f"speed {speed}, measured rate {rate}: delay {expected}",
+          abs(h.CM.execDelayCur - expected) < 1e-9, h.CM.execDelayCur)
+
+L, h = runtime()
+h.CM.effSpeed, h.CM.simRate, h.CM.execDelayCur = 0.25, 0.225, 1.6
+peer(h, "b", 1500, 400)
+tick(h)
+tick(h, h.K.DELAY_DOWN_TICKS - 1)
+check("slow-session delay retains the full down hysteresis", abs(h.CM.execDelayCur - 1.6) < 1e-9)
+tick(h)
+check("first reduction covers half the gap on the step grid", abs(h.CM.execDelayCur - 1.2) < 1e-9, h.CM.execDelayCur)
+tick(h, 3 * h.K.DELAY_DOWN_TICKS)
+check("delay converges to the slow-session requirement", abs(h.CM.execDelayCur - 0.6) < 1e-9, h.CM.execDelayCur)
 
 print("FAILED: " + ", ".join(fails) if fails else "ALL OK")
 sys.exit(1 if fails else 0)

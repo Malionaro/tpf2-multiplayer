@@ -536,7 +536,12 @@ int main(int argc, char** argv)
     assert(!model.joinFreeze && savesForced==beforeLive+1 && S().syncAskedAt);
     ApplyRoster(live); assert(savesForced==beforeLive+1);
     S().syncAskedAt=0;
-    Write(dir+"tpf2_sync_save.txt", "live join\n");
+    // The lobby's age-based refresh must bypass hot-join cached-save reuse,
+    // even when the simulation has barely advanced since the last share.
+    S().sharedSave=dir+"chosen.sav";
+    S().sharedUnpaused=S().unpausedMs;
+    Write(dir+"lobby_in.jsonl", "");
+    Write(dir+"tpf2_sync_save.txt", "fresh save\n");
     OnMenuPage(2); // No world yet: the request must survive repeated polls.
     for (int i=0; i<3; ++i) {
         SyncPoll();
@@ -549,6 +554,10 @@ int main(int argc, char** argv)
     OnGameUiFrame();
     SyncPoll();
     assert(!Exists(dir+"tpf2_sync_save.txt") && savesForced==beforeLive+2 && S().syncAskedAt);
+    std::string refreshCommands;
+    assert(ReadSmallFile(dir+"lobby_in.jsonl", &refreshCommands));
+    assert(refreshCommands.find("\"cmd\":\"sync_taking\"")!=std::string::npos);
+    assert(refreshCommands.find("\"cmd\":\"start\"")==std::string::npos);
     SyncPoll(); assert(savesForced==beforeLive+2);
     Write(dir+"tpf2_sync_save.txt", "another joiner\n");
     SyncPoll(); // The pending save still serves every joiner.

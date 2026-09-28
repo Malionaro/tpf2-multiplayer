@@ -1,15 +1,41 @@
 # TpF2 Multiplayer — Transport Fever 2 multiplayer mod
 
-Current release integration: **0.7.1.2**, Windows dev `10c327a7`; see the
-[integration and validation record](docs/linux/UPSTREAM_dev_10c327a7.md). All peers, including dedicated
+The [dev `528294b1` integration](docs/linux/UPSTREAM_dev_528294b1.md) asks for a
+fresh host save when a late joiner would receive one over two minutes old,
+with fallback if no new save arrives. Host-loop stalls no longer count as
+peer silence. Shared lobby; release remains 0.7.1.2.
+
+The [dev `304a4e28` integration](docs/linux/UPSTREAM_dev_304a4e28.md) adds catch-up progress
+logging about every 20 seconds: remaining gap, closing rate, local and session
+rates, and an ETA when the gap is closing. Shared Lua; release remains 0.7.1.2.
+
+The [dev `86f806df` integration](docs/linux/UPSTREAM_dev_86f806df.md) keeps
+terrain streams running across later STARTs, avoiding replacement while a
+joiner reads the same sidecar. Shared Linux/Windows lobby; release 0.7.1.2.
+
+The [dev `effa7243` integration](docs/linux/UPSTREAM_dev_effa7243.md) prevents
+repeat save transfers while a joining player’s mods are packing, queued or
+being delivered. The shared lobby fix applies to native Linux and Windows;
+release remains 0.7.1.2.
+
+Current release integration: **0.7.1.3**, Windows dev `a813ea9f`; see the
+[integration and validation record](docs/linux/UPSTREAM_dev_a813ea9f.md). All peers, including dedicated
 servers, must update. Existing native Sandbox town-tool capture, minimap and
 cargo-filter limitations remain. Upstream performance measurements were not
 repeated locally; matching release numbers do not establish gameplay parity.
+Completed TCP transfers no longer stay in lobby memory through listener
+registrations; active transfers retain their handlers until they finish.
 Catching-up peers retain recently heard leader clocks when stamping commands
 and defer spare-line requests until catch-up completes.
-Native terrain sidecars remain experimental and off by default; material-index
-acceleration remains unported. The upstream 0.7.1.2 release notes do not supersede
-these Linux limits or establish new native performance results.
+Dedicated servers pause while players join an otherwise empty server, and cap
+the voted speed at 1x while someone joins existing players. A joiner stops
+holding the session after about 20 minutes without a change in joining count.
+Below 1x, command delay follows session speed with a ramp margin; recovery
+from a slow session rises in steps, and excess delay falls faster.
+Native terrain sidecars are on by default from dev `71549cff` in 0.7.1.2;
+`terrain_sidecar=0` disables them. Live ownership and load-completion checks
+remain outstanding; material-index acceleration remains unported. Enabling
+sidecars does not establish new native performance results.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -44,8 +70,9 @@ adds native terrain pager recency, automatic memory headroom and fault-rate
 logging; loaded-big-map performance validation remains outstanding.
 The Windows MSI instructions below apply to the Windows version.
 The subsequent [dev `60d237c5` integration](docs/linux/UPSTREAM_dev_60d237c5.md)
-retains the Windows autosave-sidecar fix; native terrain sidecars are now available experimentally, default off, in
-[dev `2b4fd093`](docs/linux/UPSTREAM_dev_2b4fd093.md). Live lifetime validation remains blocked.
+retains the Windows autosave-sidecar fix; native terrain sidecars were introduced experimentally, default off, in
+[dev `2b4fd093`](docs/linux/UPSTREAM_dev_2b4fd093.md), then enabled by default in
+[dev `71549cff`](docs/linux/UPSTREAM_dev_71549cff.md). Live lifetime validation remains outstanding.
 
 ## How it works
 
@@ -530,3 +557,7 @@ The [dev `0eb9eea2` integration](docs/linux/UPSTREAM_dev_0eb9eea2.md) lowers Win
 free-commit threshold to 2..3 GiB (unknown RAM: 3 GiB). Native terrain paging
 retains its existing `MemAvailable` policy; `commit_tight_mb` has no native
 effect. Release remains 0.7.1.1.
+
+The [dev `a896a1cb` integration](docs/linux/UPSTREAM_dev_a896a1cb.md) fixes the native plugin host’s
+rejection of 5–13-byte hooks, including the terrain sidecar’s 13-byte AddTile
+hook. Release remains 0.7.1.2; local lab startup was blocked before the game ran.

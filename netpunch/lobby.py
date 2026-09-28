@@ -1568,6 +1568,17 @@ def _keepalive_sweep(peers, now, drop_after, transfers, log, exempt=()):
     return dead
 
 
+LOOP_STALL = 2.0     # s beyond its select timeout one host-loop turn may take before it counts as a stall
+
+
+def _loop_stall(prev, now, timeout):
+    """Seconds the host loop could not listen since ``prev`` (0 for an
+    ordinary turn): the peers are credited that much before the keepalive
+    sweep judges them."""
+    stall = now - prev - timeout
+    return stall if stall > LOOP_STALL else 0.0
+
+
 def _mid_transfer(addr, *transfers):
     """True while ``addr`` is an ACTIVE target of any of the given
     _HostSaveTransfer objects (None entries are skipped). The host's keepalive
@@ -3454,6 +3465,27 @@ def _terr_for_save(save_path):
     return terr
 
 
+def _terr_key(path):
+    """Which sidecar, as it is on disk now: a save written again under the same
+    name is another file."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return (path, None, None)
+    return (os.path.normcase(os.path.abspath(path)), st.st_size, st.st_mtime_ns)
+
+
+def _terr_streaming(streams, key, addr):
+    """True if one of the running terrain ``streams`` is still sending the
+    sidecar ``key`` to ``addr``: a second START for that joiner (another
+    player's start, a retried push) must leave that stream alone."""
+    for tx in streams:
+        p = tx.peers.get(addr)
+        if p is not None and p["state"] == "active" and getattr(tx, "terr_key", None) == key:
+            return True
+    return False
+
+
 def _terr_read(path):
     """WORKER THREAD: (blob, sha256 hex) of a sidecar, or None."""
     try:
@@ -3654,7 +3686,7 @@ def _clear_stale_incoming(directory, log=_log):
 # --------------------------------------------------------------------------- #
 # PUBLISH: the OpenTTD-style public list (netpunch/masterserver.py)
 # --------------------------------------------------------------------------- #
-LOBBY_VERSION = "0.7.1.2"
+LOBBY_VERSION = "0.7.1.3"
 
 
 def version_rejection(remote):
@@ -4088,7 +4120,7 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
     start_save = [False]                    # save flag of the last broadcast start
     last_emitted_roster = [None]
     transfer = [None]                       # the active _HostSaveTransfer, or None
-    terr_transfer = [None]                  # the terrain sidecar streaming to joiners after a START (kind "terr"), or None
+    terr_streams = []                       # the terrain sidecars streaming to joiners after a START (kind "terr"), each with .terr_key
     terr_jobs = queue.Queue()               # (sid, path, targets, (blob, sha) | None) from the sidecar reader thread
     unplaced_feedback = set()               # (addr, sid) of facks/fdones the transfer could not place, logged once each
     upload = [None]                         # relay-only: the leader's save coming in
@@ -4170,6 +4202,12 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
         return {n: letter_for(n) for n in names}
 
     HOTJOIN_STORED_MAX = 180.0                # a late joiner is served from the stored world when it is this fresh
+    # A HOST's save older than this is not sent to a newcomer: its menu takes a
+    # fresh one first (2026-09-28, user: "make sure saves are new and fresh"). A
+    # joiner on a slow PC closes its gap at ~1 unit/s, so every second of a save's
+    # age is about a second more catching up; a save costs the host one freeze.
+    HOTJOIN_SAVE_MAX_AGE = 120.0
+    fresh_asked = [0.0]                       # when the menu was last asked for a fresh save (once per wait)
     RELAY_MODS_GRACE = 8.0                    # seconds a completed upload waits for the leader's mods round before it goes out
 
     session_epoch = [0.0]                     # when the current session's world left the relay (resume push)
@@ -4549,6 +4587,11 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
         if path is None:
             log(f"[host] terrain stream: no sidecar for {os.path.basename(str(save_path))} -- joiners compute their terrain")
             return
+        key = _terr_key(path)
+        targets = [(a, n) for a, n in targets if not _terr_streaming(terr_streams, key, a)]
+        if not targets:
+            log(f"[host] terrain stream: every joiner started is already receiving {os.path.basename(path)} -- nothing new to send")
+            return
         sid = (int(time.time() * 1000) + 1) & 0xFFFFFFFF
         threading.Thread(target=lambda: terr_jobs.put((sid, path, targets, _terr_read(path))),
                          name="terr-read", daemon=True).start()
@@ -4912,9 +4955,9 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
                     transfer[0].on_peer_dropped(addr)
                 roster_changed()
         # ---- reliable save-transfer feedback (receiver -> host) ---------- #
-        elif t in ("fbegin_ack", "tcp_gave_up", "fack", "fdone") and terr_transfer[0] is not None \
-                and msg.get("sid") == terr_transfer[0].sid:
-            tx = terr_transfer[0]
+        elif t in ("fbegin_ack", "tcp_gave_up", "fack", "fdone") \
+                and any(x.sid == msg.get("sid") for x in terr_streams):
+            tx = next(x for x in terr_streams if x.sid == msg.get("sid"))
             if addr in tx.peers:
                 {"fbegin_ack": tx.on_begin_ack, "tcp_gave_up": tx.on_tcp_gave_up,
                  "fack": tx.on_fack, "fdone": tx.on_fdone}[t](addr, msg)
@@ -5227,6 +5270,32 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
 
     last_heal = last_drop = 0.0
     last_serve_check = [0.0]
+
+    def save_age(path):
+        try:
+            return time.time() - os.path.getmtime(path)
+        except OSError:
+            return None
+
+    def ask_fresh_save(why):
+        """Ask the host's menu for a new save (tpf2_sync_save.txt, its SyncPoll);
+        it answers with sync_taking, then a start carrying the file. False when
+        this host cannot (no world, no live join, asked a moment ago)."""
+        now_ = time.time()
+        if relay_only or not recovery or not host_has_world() or not _live_join_on(io.dir):
+            return False
+        if now_ - fresh_asked[0] < 150:
+            return False                      # asked for this wait already: it did not come, send what there is
+        try:
+            with open(os.path.join(str(recovery.runtime.directory), "tpf2_sync_save.txt"), "w") as f:
+                f.write("fresh save\n")
+        except OSError as e:
+            log(f"[host] could not ask the menu for a fresh save: {e}")
+            return False
+        fresh_asked[0] = now_
+        serve_hold[0] = now_ + 120            # the serve-again waits for it (its start lifts the hold)
+        log(f"[host] {why} -- asked the host's menu for a fresh save")
+        return True
     punching = {}                           # (ip, port) a joiner knocked from -> punch until
     relay_binds = {}                        # (ip, port) of a master relay allocation -> (id, bind until)
     last_punch = [0.0]
@@ -5235,6 +5304,7 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
     # The game relay's loopback socket joins the select set so a bridge frame
     # wakes the loop immediately (lockstep latency) instead of on the next tick.
     rlist = [sock] if relay is None else [sock, relay.sock]
+    loop_prev = [time.time()]
     try:
         while not stop.is_set():
             # While a transfer runs, poll fast so we pump chunks + absorb ACKs
@@ -5246,6 +5316,17 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
             except (OSError, ValueError):
                 break
             now = time.time()
+            # OUR STALL IS NOT THEIR SILENCE (2026-09-28): the dedicated server's
+            # lobby stood 19 s reading a 372 MB save while the machine swapped;
+            # the players' pings overflowed the socket meanwhile and the sweep
+            # dropped all three as silent. Time this loop could not listen is
+            # credited to every peer.
+            stall = _loop_stall(loop_prev[0], now, timeout)
+            loop_prev[0] = now
+            if stall:
+                for p in peers.values():
+                    p["last"] = min(now, p["last"] + stall)
+                log(f"[host] the lobby stood {stall:.1f} s -- nobody is counted silent for it")
 
             # Drain up to HOST_DRAIN datagrams this cycle -- a busy transfer can
             # deliver a burst of facks/pings, and one-per-iteration would let the
@@ -5380,7 +5461,7 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
                 last_drop = now
                 frags.expire(now)
                 dead = _keepalive_sweep(peers, now, drop_after,
-                                        (transfer[0], recovery.transfer if recovery else None, terr_transfer[0]), log,
+                                        (transfer[0], recovery.transfer if recovery else None, *terr_streams), log,
                                         exempt=set(pack_job[0]["addrs"]) if pack_job[0] else ())
                 for a in dead:
                     log(f"[host] DROP {a} ({peers[a]['name']}) -- silent")
@@ -5487,13 +5568,23 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
             # Anyone who joined during a transfer is still unstarted: serve them
             # from the same save now that the pipe is free (relay: its stored
             # world; host: the file START GAME shared). One push per batch.
-            if not (recovery and recovery.held) and started[0] and transfer[0] is None and upload[0] is None and last_shared[0] and now - last_serve_check[0] >= 1.0 and now >= serve_hold[0]:
+            # NOT while a mods round is packing or sending: its joiners hold the
+            # save already and start when the mods land. The pipe is free while
+            # the worker packs, and this pushed the whole save to them again,
+            # every round, for as long as they were in the lobby (2026-09-28).
+            mods_busy = pack_job[0] is not None or bool(pack_queue) or mod_round[0] is not None
+            if not (recovery and recovery.held) and started[0] and transfer[0] is None and upload[0] is None and not mods_busy and last_shared[0] and now - last_serve_check[0] >= 1.0 and now >= serve_hold[0]:
                 last_serve_check[0] = now
                 waiting = [a for a in peers if not peers[a].get("started")]
                 fresh = (not relay_only) or (0 <= stored_age() <= HOTJOIN_STORED_MAX)
                 if waiting and fresh and os.path.isfile(last_shared[0]) and (not relay_only or leader_addr() not in waiting):
-                    log(f"[host] {len(waiting)} peer(s) waiting for the save -- pushing it again")
-                    begin_save_transfer(last_shared[0])
+                    age = save_age(last_shared[0])
+                    if age is not None and age > HOTJOIN_SAVE_MAX_AGE and ask_fresh_save(
+                            f"{len(waiting)} peer(s) waiting and the last save is {int(age)} s old"):
+                        pass
+                    else:
+                        log(f"[host] {len(waiting)} peer(s) waiting for the save -- pushing it again")
+                        begin_save_transfer(last_shared[0])
             # relay-only: the leader's upload
             if relay_only and upload[0] is not None:
                 u = upload[0]
@@ -5535,7 +5626,15 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
                     begin_save_transfer(path)
             if transfer[0] is None and pending_start[0] is not None:
                 queued, pending_start[0] = pending_start[0], None
-                handle_command(queued)
+                # a hot-join save that waited out another transfer is as old as that
+                # transfer took: past HOTJOIN_SAVE_MAX_AGE the menu takes a new one
+                # (never for a world switch or the first START: those are the host's)
+                age = save_age(queued.get("save")) if queued.get("save") else None
+                if (started[0] and not queued.get("switch") and age is not None and age > HOTJOIN_SAVE_MAX_AGE
+                        and ask_fresh_save(f"the queued save waited {int(age)} s behind another transfer")):
+                    pass
+                else:
+                    handle_command(queued)
             # MOD ROUNDS run on a worker thread, in BATCHES. Zipping ran in this
             # loop until 2026-09-18, as ONE blob: a joiner asking for 314 of a
             # save's 486 Workshop mods (~15 GB) left the host deaf for as long
@@ -5718,40 +5817,50 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
                         _send_data(sock, x, {"t": "status", "state": "connected", "detail": detail})
                     # the host waits too: its panel shows the same pace and time left
                     io.emit({"type": "status", "state": "connected", "detail": f"{job['names']}: {detail}"})
-            # The terrain stream: made once its reader is done, pumped, and
-            # forgotten once every joiner finished, failed or left. A new one
-            # (a later START) replaces it: its joiners' loads are over.
+            # The terrain streams: made once the reader is done, pumped, and
+            # forgotten once every joiner finished, failed or left. A later
+            # START does NOT replace a running one (2026-09-28): the joiner's
+            # game had already opened that file, and a replacement left it
+            # reading a stream that stopped half way, so it computed the
+            # terrain itself -- minutes on a big map. A joiner already
+            # receiving the same file is not sent it again; one receiving
+            # another file moves to the new stream (a new load of its own).
             try:
                 sid_t, path_t, targets_t, read_t = terr_jobs.get_nowait()
             except queue.Empty:
                 read_t = None
             else:
-                live_t = [(a, n) for a, n in targets_t if a in peers]
+                key_t = _terr_key(path_t)
+                live_t = [(a, n) for a, n in targets_t if a in peers and not _terr_streaming(terr_streams, key_t, a)]
                 if read_t is None:
                     log(f"[host] terrain stream: could not read {path_t}")
                 elif live_t:
-                    if terr_transfer[0] is not None:
-                        log(f"[host] terrain stream sid={terr_transfer[0].sid} replaced by a newer START")
-                    terr_transfer[0] = _HostSaveTransfer(
+                    for old in terr_streams:
+                        for a, _n in live_t:
+                            if a in old.peers:
+                                old.on_peer_dropped(a)       # its receiver switches to the new stream
+                    tx = _HostSaveTransfer(
                         sock, sid_t, read_t[0], [{"name": TERR_NAME, "size": len(read_t[0]), "sha256": read_t[1]}],
                         live_t, _QuietIO(io), log, kind="terr", overall_sha=read_t[1])
+                    tx.terr_key = key_t
+                    terr_streams.append(tx)
                     log(f"[host] terrain stream: {os.path.basename(path_t)} ({len(read_t[0]) / 1048576:.1f} MiB) "
                         f"to {', '.join(n for _, n in live_t)} while they load")
                 read_t = None
-            if terr_transfer[0] is not None:
-                tx = terr_transfer[0]
+            for tx in list(terr_streams):
                 try:
                     for a in list(tx.peers):
                         if a not in peers:
                             tx.on_peer_dropped(a)
                     tx.pump(now)
                     if tx.all_resolved():
-                        terr_transfer[0] = None
+                        terr_streams.remove(tx)
                         log(f"[host] terrain stream sid={tx.sid}: {tx.done_count()} of {len(tx.peers)} joiner(s) got it"
                             + (f"; not {', '.join(tx.failed_names())}" if tx.failed_names() else ""))
                 except Exception as e:                     # never crash the lobby: the stream is optional
                     log(f"[host] terrain stream error: {e!r} -- dropped")
-                    terr_transfer[0] = None
+                    if tx in terr_streams:
+                        terr_streams.remove(tx)
             # Pump the save transfer (if any). Once every peer has resolved:
             #   all done (dropped peers don't block) -> start with save=true;
             #   any FAILED -> failed status naming them, NO start, and the

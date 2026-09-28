@@ -233,6 +233,8 @@ function CM.voteSpeed()
 	end
 	local avg = math.floor(sum / #list * 20 + 0.5) / 20
 	if avg < K.VOTE_MIN then avg = K.VOTE_MIN elseif avg > K.VOTE_MAX then avg = K.VOTE_MAX end
+	-- a dedicated server with a player joining: 1x at most (CM.dedicatedTick)
+	if CM.dedJoining and avg > 1 then avg = 1 end
 	return avg, table.concat(parts, ","), #list
 end
 
@@ -719,6 +721,9 @@ function CM.hostCapacityCap(eff, applied, s, now)
 	return eff, nil
 end
 
+K.SPEED_RAMP = 1.25        -- a session under 1x rises by at most this factor per step...
+K.SPEED_RAMP_TICKS = 10    -- ...one step per this many ticks (~2 s: longer than a slow one-way trip)
+K.DELAY_RAMP_MARGIN = 1.6  -- net.lua: the delay under 1x covers a joiner's PID (1.2x) during one ramp step (1.25)
 function CM.governSpeed(now, eff)
 	if not eff or eff <= 0 then CM.govPrevNow, CM.govPrevTick = nil, nil; CM.govEmaLag, CM.govPrevSmoothed = nil, nil; return eff end
 	if CM.governorOff() then CM.govFactor, CM.govWorst, CM.govWho = 1, 0, nil; CM.govEmaLag, CM.govPrevSmoothed = nil, nil; return eff end
@@ -979,6 +984,7 @@ function CM.catchUpTick(now, s)
 		if behind > K.CATCHUP_MIN then
 			CM.catchingUp2 = true
 			CM.cuSince, CM.cuFrom, CM.cuAsks = CM.ticks, now, 1
+			CM.cuRate = nil
 			if CM.lgFetchedFrom and now >= CM.lgFetchedFrom - 1e-6 then
 				-- straight out of the load gate: its feed (everything after the save's
 				-- stamp) is this history, and we have been listening since -- asking
@@ -1040,7 +1046,23 @@ function CM.catchUpTick(now, s)
 		CM.catchingUp2 = false; CM.cuPhase = nil
 		CM.pidHold, CM.pidI, CM.pidLastE, CM.pidFar, CM.pidRecover = nil, 0, nil, nil, nil
 		log(string.format("CATCHUP: %.1f unit(s) behind the leader -- ordinary pacing from here", behind))
+		CM.cuRate = nil
 		return nil
+	end
+	-- HOW FAST, every ~20 s (2026-09-28): a slow PC closed a 580-unit gap at 1.1
+	-- units/s, and nothing said whether its own game or the session was the limit.
+	-- Own rate = what this game ran; closing = own minus the session's.
+	local wall = os.time()
+	local r = CM.cuRate
+	if not r then
+		CM.cuRate = {wall = wall, now = now, behind = behind}
+	elseif wall - r.wall >= 20 then
+		local dt = wall - r.wall
+		local own, closing = (now - r.now) / dt, (r.behind - behind) / dt
+		log(string.format("CATCHUP: %.1f unit(s) behind, closing %.2f/s (this game %.2f/s at %gx, the session %.2f/s)%s",
+			behind, closing, own, speed, own - closing,
+			closing > 0.05 and string.format(" -- ~%d s to go", math.floor(behind / closing)) or ""))
+		CM.cuRate = {wall = wall, now = now, behind = behind}
 	end
 	return speed
 end
@@ -1145,6 +1167,21 @@ function CM.paceV2(now)
 		-- the governor works under the votes (or the request): the slowest peer sets the pace
 		local governed = CM.governSpeed(now, eff)
 		if governed ~= eff then eff = governed; why = string.format("governed: %s is %.1f behind", tostring(CM.govWho or "?"), CM.govWorst or 0) end
+		-- RAMP BELOW 1x (2026-09-28): under 1x the command delay is sized by the session
+		-- speed (net.lua CM.execDelayTick), so a sudden rise -- a 4x vote landing on a
+		-- governed 0.25x -- would outrun commands already in flight. A rise from under
+		-- 1x goes up K.SPEED_RAMP at a time, one step per K.SPEED_RAMP_TICKS; the delay
+		-- carries K.DELAY_RAMP_MARGIN for one step. From 1x up nothing changes.
+		local cur = CM.effSpeed or 0
+		if eff > 0 and cur > 0 and cur < 1 and eff > cur * K.SPEED_RAMP then
+			if (CM.ticks - (CM.rampAt or -1000)) >= K.SPEED_RAMP_TICKS then
+				CM.rampAt = CM.ticks
+				local step = math.max(cur + 0.05, math.floor(cur * K.SPEED_RAMP / 0.05) * 0.05)
+				if step < eff then eff = step; why = why .. string.format(" (ramping up from %g)", cur) end
+			else
+				eff = cur
+			end
+		end
 		CM.syncTick(now, s)
 		local changed = (eff ~= CM.effSpeed)
 		local recounted = (vt ~= CM.voteCounted)
@@ -1354,24 +1391,59 @@ function CM.dedAutosaveTick(s, others)
 	return false
 end
 
+-- PLAYERS JOINING (2026-09-28, the user: "when no one other than the server is
+-- on the server it should pause for joiners, else speed 1 when people are
+-- joining"). Playing: peers heard within the stale window and not catching up.
+-- Joining: roster players beyond the server and those, plus peers still catching
+-- up (cu=1). Nobody playing and somebody joining: the world stands still until
+-- they are in (a long save transfer and load, then a catch-up to a clock that
+-- did not move). Somebody playing: the session runs at 1x at most (voteSpeed),
+-- so the newcomer has less to catch up. A joiner that long (a failed transfer
+-- left in the lobby) stops holding anyone back after K.DED_JOIN_HOLD_TICKS,
+-- counted afresh whenever the number joining changes.
+K.DED_JOIN_HOLD_TICKS = 6000   -- ~20 min (a 370 MB save at 0.7 MB/s is ~9 min, then the load)
 function CM.dedicatedTick()
 	if not CM.dedicatedPauseEmpty() or CM.resyncHold then return false end
 	local others = CM.othersPresent and CM.othersPresent()
 	local s
 	pcall(function() s = game.interface.getGameSpeed() end)
 	if CM.dedAutosaveTick(s, others) then return true end
-	if not others then
+	local playing, catching = 0, 0
+	for _, pr in pairs(CM.peers or {}) do
+		if pr.at and ((CM.ticks or 0) - pr.at) <= (K.PEER_STALE_TICKS or 25) then
+			if pr.cu then catching = catching + 1 else playing = playing + 1 end
+		end
+	end
+	local joining = catching + math.max(0, (tonumber(CM.rosterPlayers) or 0) - 1 - playing - catching)
+	if joining ~= (CM.dedJoinN or 0) then CM.dedJoinN, CM.dedJoinSince = joining, CM.ticks or 0 end
+	if joining > 0 and (CM.ticks or 0) - (CM.dedJoinSince or 0) > (K.DED_JOIN_HOLD_TICKS or 6000) then joining = 0 end
+	local capped = playing > 0 and joining > 0
+	local was = CM.dedJoining == true
+	CM.dedJoining = capped
+	if capped ~= was then
+		log(capped and string.format("PACE: dedicated server -- %d player(s) joining, the session runs at 1x at most until they are in", joining)
+			or "PACE: dedicated server -- nobody joining now, the players' speed again")
+		local v, vt = CM.voteSpeed and CM.voteSpeed()
+		if v and CM.isLeader and CM.isLeader() and (CM.effSpeed or 0) > 0 and CM.broadcast and CM.lseffLine then
+			CM.effSpeed, CM.voteCounted = v, vt
+			CM.broadcast(CM.lseffLine(v, vt))
+		end
+	end
+	if not others or (playing == 0 and joining > 0) then
 		if s and (CM.ticks or 0) >= (K.LOADGATE_MIN_TICKS or 0) then
-			local want = CM.dedEmptySpeed or 1
+			local want = joining > 0 and 0 or (CM.dedEmptySpeed or 1)
+			local why = joining > 0 and "dedicated server: a player is joining, paused until they are in"
+				or (want == 0 and "dedicated server: nobody is here" or string.format("dedicated server: nobody is here, %dx", want))
 			if not CM.dedPaused then
 				if s > 0 then CM.dedResume = s end
 				CM.dedPaused = true
-				if s ~= want then CM.setSpeed(want, want == 0 and "dedicated server: nobody is here" or string.format("dedicated server: nobody is here, %dx", want)) end
-			elseif s ~= want and (CM.ticks or 0) - (CM.dedEmptySetAt or -1000) >= 25 then
-				-- the lever moved under us (a load, a released hold): back to the empty speed
+				if s ~= want then CM.setSpeed(want, why) end
+			elseif s ~= want and ((CM.dedWant ~= want) or (CM.ticks or 0) - (CM.dedEmptySetAt or -1000) >= 25) then
+				-- a joiner came or went, or the lever moved under us (a load, a released hold)
 				CM.dedEmptySetAt = CM.ticks or 0
-				CM.setSpeed(want, string.format("dedicated server: nobody is here, %dx", want))
+				CM.setSpeed(want, why)
 			end
+			CM.dedWant = want
 		end
 		return CM.dedPaused == true
 	end

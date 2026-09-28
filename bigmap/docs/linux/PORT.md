@@ -581,6 +581,11 @@ Fresh ELF analysis and a blocked lab launch are recorded in
 
 ## Terrain sidecar (dev 2b4fd093, experimental, default off)
 
+Historical default below: dev `71549cff` enables `terrain_sidecar=1` in both
+the shipped configuration and compiled fallback for 0.7.1.2. Explicit 0 still
+disables it. This policy change does not close the live ownership/completion
+gaps. See [the current integration](../../../docs/linux/UPSTREAM_dev_71549cff.md).
+
 This supersedes the implementation-absence statements in the historical sections
 above. Live ownership/completion proof remains missing; see
 [the integration evidence](../../../docs/re/linux/DEV_2B4FD093.md).
