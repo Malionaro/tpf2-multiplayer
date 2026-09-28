@@ -217,6 +217,37 @@ return T
     check("a found speed 2 stands", T.CM.dedicatedResumeSpeed(2) == 2)
     T.CM.dedicated = False
     check("not dedicated: whatever was found, 0 included", T.CM.dedicatedResumeSpeed(0) == 0)
+    # PLAYERS JOINING (2026-09-28): alone and a joiner on the way -> paused until they are in;
+    # players in and somebody joining -> 1x at most; a stuck joiner stops counting after the hold
+    open(os.path.join(td, "mp_dedicated.txt"), "w").write("dedicated=1\nempty_speed=1\n")
+    T.CM.dedCfgAt = None; T.CM.ticks = 5000; T.CM.dedPaused = False; T.CM.dedJoinN = None; T.CM.dedJoining = None
+    T.CM.voteSpeed = L.eval("function() return 3 end"); T.CM.rosterPlayers = 1; T.setSpeed(2)
+    L.execute("CM_PEERS = {}"); T.CM.peers = L.globals().CM_PEERS
+    held, s = T.tick(1, False, False)
+    check("joining: alone, the world runs at the empty speed (1x)", held is True and s == 1)
+    T.CM.rosterPlayers = 2
+    n = len(T.speeds)
+    held, s = T.tick(1, True, False)
+    check("joining: a player in the lobby of an empty server -> paused at once",
+          held is True and s == 0 and T.speeds[n + 1] == "0:dedicated server: a player is joining, paused until they are in", str(T.speeds[n + 1]))
+    T.CM.peers.b = L.eval("{ at = 1e9, cu = true }")
+    held, s = T.tick(30, True, False)
+    check("joining: their game runs and catches up (cu=1) -> still paused", held is True and s == 0)
+    T.CM.peers.b.cu = False
+    held, s = T.tick(1, True, False)
+    check("joining: caught up -> the players' speed", held is False and s == 3 and T.CM.dedJoining is False)
+    T.CM.rosterPlayers = 3
+    T.CM.isLeader = L.eval("function() return true end"); T.CM.effSpeed = 3
+    L.execute("CM_SENT = {}"); T.CM.broadcast = L.eval("function(l) CM_SENT[#CM_SENT + 1] = l end")
+    T.CM.lseffLine = L.eval("function(v) return 'LSEFF v=' .. v end")
+    T.CM.voteSpeed = L.eval("function() return 1 end")   # what voteSpeed gives while capped (tested below)
+    held, s = T.tick(1, True, False)
+    check("joining: a second player joins while one plays -> not paused, the cap is on and LSEFF goes out",
+          held is False and T.CM.dedJoining is True and L.eval("CM_SENT[#CM_SENT]") == "LSEFF v=1")
+    held, s = T.tick(6000 + 5, True, False)
+    check("joining: a joiner that never arrives stops holding the session back after the hold", T.CM.dedJoining is False)
+    T.CM.rosterPlayers = 2; T.CM.peers.b = None
+    T.CM.dedicated = False
 
 # ---- the autosave hold (2026-09-21) and the clock's own button, on Lua 5.2
 with tempfile.TemporaryDirectory() as td:
@@ -314,3 +345,22 @@ if fails:
     raise SystemExit("FAIL: " + ", ".join(fails))
 print("PASS: dedicated mode -- the menu hosts, loads and autosaves by itself; the lobby keeps a stable code and lists as a "
       "dedicated server; the mod pauses the empty world and gives the speed back")
+
+# ---- voteSpeed: the 1x cap while a player joins a dedicated server (2026-09-28)
+mv = re.search(r"^function CM\.voteSpeed\(\)\n.*?\n^end\n", PACING, re.S | re.M)
+check("voteSpeed is found", mv is not None)
+if mv:
+    L = lupa.LuaRuntime(unpack_returned_tuples=True)
+    L.globals().SRC = mv.group(0)
+    V = L.execute(r'''
+local K = { VOTE_MIN = 0.25, VOTE_MAX = 4.5 }
+local CM = {}
+CM.votesCounted = function() return { { letter = "a", v = 4, own = true }, { letter = "b", v = 3 } } end
+assert(load("local CM, K = ...\n" .. SRC, "@vote"))(CM, K)
+return CM
+''')
+    v = V.voteSpeed()
+    check("voteSpeed: the votes' mean without a joiner (3.5)", (v[0] if isinstance(v, tuple) else v) == 3.5)
+    V.dedJoining = True
+    v = V.voteSpeed()
+    check("voteSpeed: 1x while a player joins", (v[0] if isinstance(v, tuple) else v) == 1)
