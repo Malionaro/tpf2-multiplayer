@@ -571,3 +571,10 @@ writer. Fresh ELF disassembly confirmed the grid view, but the lab failed
 before startup, preventing capture-lifetime and worker/pager validation.
 See [integration](../../../docs/linux/UPSTREAM_dev_c8dd5157.md) and
 [RE evidence](../../../docs/re/linux/DEV_C8DD5157.md).
+
+## Per-terrain served ranges (dev fdfb79e8, not ported)
+
+Windows now retains ranges for up to four grids. Native runtime sidecar serving
+and alignment bypass remain absent; this change has no native runtime effect.
+Fresh ELF analysis and a blocked lab launch are recorded in
+[the investigation](../../../docs/re/linux/DEV_FDFB79E8.md).

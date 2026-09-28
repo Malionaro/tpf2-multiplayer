@@ -462,3 +462,8 @@ The [dev `c8dd5157` integration](docs/linux/UPSTREAM_dev_c8dd5157.md) adds Linux
 threaded terrain-sidecar encoding and POSIX file handling. Native game-side
 capture/serving remains unported; `terrain_sidecar_threads` has no native
 runtime effect. No native save-time improvement is claimed.
+
+The [dev `fdfb79e8` integration](docs/linux/UPSTREAM_dev_fdfb79e8.md) retains
+Windows range tracking for multiple terrain versions. Native sidecar serving
+and alignment bypass remain unported after fresh static analysis and a lab
+startup failure; native alignment behavior is unchanged.
