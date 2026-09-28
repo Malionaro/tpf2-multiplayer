@@ -61,3 +61,12 @@ if(BUILD_TESTING)
   add_library(test_generator_text SHARED tests/generator_test.cpp)
   target_link_libraries(test_generator_text PRIVATE stdc++fs)
 endif()
+
+if(BUILD_TESTING)
+  # Synthetic grid only: the native plugin does not yet capture/serve sidecars.
+  add_executable(test_terrain_sidecar ../tools/test_terrain_sidecar.cpp)
+  target_compile_options(test_terrain_sidecar PRIVATE -UNDEBUG)
+  target_link_libraries(test_terrain_sidecar PRIVATE Threads::Threads)
+  add_test(NAME terrain_sidecar COMMAND test_terrain_sidecar)
+  set_tests_properties(terrain_sidecar PROPERTIES TIMEOUT 120)
+endif()

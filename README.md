@@ -457,3 +457,8 @@ The [dev `0871bfa6` integration](docs/linux/UPSTREAM_dev_0871bfa6.md) retains Wi
 alignment bypass. Native Linux sidecar serving and this bypass remain unported;
 Linux continues its existing alignment path. Static publication metadata was
 verified, but the lab failed before startup, preventing live lifetime proof.
+
+The [dev `c8dd5157` integration](docs/linux/UPSTREAM_dev_c8dd5157.md) adds Linux offline coverage for
+threaded terrain-sidecar encoding and POSIX file handling. Native game-side
+capture/serving remains unported; `terrain_sidecar_threads` has no native
+runtime effect. No native save-time improvement is claimed.

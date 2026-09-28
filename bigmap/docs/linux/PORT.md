@@ -558,3 +558,16 @@ Fresh ELF analysis located the equivalent scaled min/max and version stores,
 but the lab launcher failed before startup, preventing live proof.
 See [RE evidence](../../../docs/re/linux/DEV_0871BFA6.md) and
 [integration/tests](../../../docs/linux/UPSTREAM_dev_0871bfa6.md).
+
+## Threaded sidecar encoding (dev c8dd5157, runtime not ported)
+
+The shared header now compiles with pthread read/write locks and POSIX file
+handling. Native CTest exercises deterministic encoding with 1, 2, 4, 7 and
+automatic threads across two full 2,048-record windows and one partial window,
+plus restore/corruption checks and UTF-8 path/fingerprint lookup.
+This is synthetic-grid validation, not a game-side capture implementation.
+The native plugin still does not read `terrain_sidecar_threads` or call the
+writer. Fresh ELF disassembly confirmed the grid view, but the lab failed
+before startup, preventing capture-lifetime and worker/pager validation.
+See [integration](../../../docs/linux/UPSTREAM_dev_c8dd5157.md) and
+[RE evidence](../../../docs/re/linux/DEV_C8DD5157.md).
