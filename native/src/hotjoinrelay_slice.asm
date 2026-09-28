@@ -17,6 +17,13 @@
 ;               49 8b bd 20 01 00 00  mov rdi,[r13+120h]; r13 = the helper, [r13+120h]
 ;               its data block with the 5 person + 4 cargo maps the applies walk
 ;               (the relay hands HotJoinSort the address of that pointer)
+;   vehstop     SimEntityAtTerminalSystem::Update  rva 0xa820f4
+;               48 89 85 88 00 00 00  mov [rbp+88h],rax; rax = the vector<Entity> of the
+;               vehicles standing at this line stop (0xad5550's result), about to be
+;               handed the waiting cargo and people in its order
+;   unload      SimEntityAtVehicleSystem::Update  rva 0xa85aa5  4c 8b 44 24 48
+;               mov r8,[rsp+48h]; the deque<Entity> unloaded from its front is at
+;               [rsp+48h] + r13 (the relay hands the saved-register block)
 ;   freed-ids   Engine::EndModification 0x23de130  rva 0x23de385
 ;               49 8b 04 24 48 8b 50 08  mov rax,[r12] / mov rdx,[rax+8]; r12 =
 ;               engine+0x200, [r12] -> the removed-id vector about to be appended to
@@ -41,6 +48,8 @@ EXTERN g_hjResume3:QWORD
 EXTERN g_hjResume4:QWORD
 EXTERN g_hjResume5:QWORD
 EXTERN g_hjResume6:QWORD
+EXTERN g_hjResume7:QWORD
+EXTERN g_hjResume8:QWORD
 
 .code
 
@@ -148,5 +157,20 @@ HotJoinStepRelay PROC
     push r15
     jmp  qword ptr [g_hjResume6]
 HotJoinStepRelay ENDP
+
+; vehstop: rax is the vector itself (pushes leave it unchanged), so [rax] is its address.
+HotJoinVehStopRelay PROC
+    HotJoinBody 7, [rax]
+    mov  qword ptr [rbp+88h], rax  ; the stolen instruction
+    jmp  qword ptr [g_hjResume7]
+HotJoinVehStopRelay ENDP
+
+; unload: the relay hands rbx, the saved-register block (r13 at +10h, the
+; engine's rsp at +78h); HotJoinSort finds the deque at [rsp+48h] + r13.
+HotJoinUnloadRelay PROC
+    HotJoinBody 8, [rbx]
+    mov  r8, qword ptr [rsp+48h]   ; the stolen instruction
+    jmp  qword ptr [g_hjResume8]
+HotJoinUnloadRelay ENDP
 
 END

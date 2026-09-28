@@ -1,4 +1,4 @@
-// Execute the seven hot-join patches in a private image, with every GP/XMM
+// Execute the nine hot-join patches in a private image, with every GP/XMM
 // register live. The original game files and running processes are untouched.
 #include "../src/order_canon_linux.cpp"
 #include "../src/codewrite_linux.h"
@@ -352,6 +352,19 @@ int main() {
             if(site==3)memcpy(system.data()+3,vec,sizeof(vec));
             else system[0x120/8]=reinterpret_cast<uintptr_t>(maps.data());
         }
+        // unload (8): a libstdc++ deque<Entity> spanning two blocks at r15
+        std::vector<int32_t> blockA(128,-7),blockB(128,-7);
+        int32_t* dqmap[4]={nullptr,blockA.data(),blockB.data(),nullptr};
+        const int32_t dqIds[]={40,7,33,2,19};
+        for(int i=0;i<3;++i)blockA[125+i]=dqIds[i];
+        for(int i=0;i<2;++i)blockB[i]=dqIds[3+i];
+        uintptr_t deque[10]={reinterpret_cast<uintptr_t>(dqmap),4,
+            reinterpret_cast<uintptr_t>(blockA.data()+125),reinterpret_cast<uintptr_t>(blockA.data()),
+            reinterpret_cast<uintptr_t>(blockA.data()+128),reinterpret_cast<uintptr_t>(dqmap+1),
+            reinterpret_cast<uintptr_t>(blockB.data()+2),reinterpret_cast<uintptr_t>(blockB.data()),
+            reinterpret_cast<uintptr_t>(blockB.data()+128),reinterpret_cast<uintptr_t>(dqmap+2)};
+        if(site==7)in.rax=reinterpret_cast<uintptr_t>(vec);
+        if(site==8)in.r15=reinterpret_cast<uintptr_t>(deque);
         uintptr_t load[]={0,0x12345678};uintptr_t output=1;
         if(site==0)in.rbx=reinterpret_cast<uintptr_t>(&output);
         if(site==1)in.rdx=reinterpret_cast<uintptr_t>(load);
@@ -365,13 +378,17 @@ int main() {
         if(site==3)expected.rcx=reinterpret_cast<uintptr_t>(system.data());
         if(site==5)expected.rax=reinterpret_cast<uintptr_t>(vec);
         if(site==4)expected.rax=reinterpret_cast<uintptr_t>(system.data());
+        if(site==8){expected.rax=deque[6];expected.rbx=deque[2];}
         auto fixture=MakeFixture(base,site,alignment,code);
         const auto oldMxcsr=_mm_getcsr();const auto mxcsr=(oldMxcsr&~0x6000u)|(alignment<<13);_mm_setcsr(mxcsr);
         fixture(&in,&out);assert(_mm_getcsr()==mxcsr);_mm_setcsr(oldMxcsr);
         assert(!memcmp(&out,&expected,128));assert(!memcmp(out.xmm,in.xmm,sizeof(in.xmm)));assert(out.rspBefore==out.rspAfter);
-        if(site<4 || site==5)assert((ids==std::vector<int32_t>{1,2,4,8}));
+        if(site<4 || site==5 || site==7)assert((ids==std::vector<int32_t>{1,2,4,8}));
+        if(site==7)assert(*reinterpret_cast<uintptr_t*>(in.rbp-0xe20)==reinterpret_cast<uintptr_t>(vec)); // replayed store
+        if(site==8)assert(blockA[124]==-7 && blockA[125]==2 && blockA[126]==7 && blockA[127]==19 &&
+                          blockB[0]==33 && blockB[1]==40 && blockB[2]==-7);
         if(site==0)assert(output==0);
     }
     munmap(code,4096);munmap(image,size);
-    puts("canonical order: seven real shims, GP/XMM/flags/MXCSR/RSP, both alignments, all guards and rollback, map integrity passed");
+    puts("canonical order: nine real shims, GP/XMM/flags/MXCSR/RSP, both alignments, all guards and rollback, map integrity passed");
 }
