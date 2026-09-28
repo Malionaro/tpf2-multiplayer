@@ -744,6 +744,9 @@ end
 CM.spareAskedAt = nil
 function CM.spareTick()
 	if (K.LINE_SPARE or 1) == 0 or not CM.peerSeen or CM.resyncHold or CM.actionsOff or CM.dedicatedGui then return end
+	-- not while this game is catching up (2026-09-27): what it stamps then lands in
+	-- the leader's past (see CM.fastestPeerClock); the spare can wait until it is in step
+	if CM.catchingUp2 or (CM.lgFetch ~= nil and CM.lgFetch ~= "done") then return end
 	local now = CM.gameTime()
 	if not now then return end
 	local lid = CM.spareLid()

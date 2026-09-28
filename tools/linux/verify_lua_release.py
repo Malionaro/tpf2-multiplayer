@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the cumulative Linux Lua integration: Windows dev 893be145 (release 0.7.1)."""
+"""Verify the cumulative Linux Lua integration: Windows dev d4a11297 (release 0.7.1)."""
 import argparse
 import hashlib
 from pathlib import Path
@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 REPO = Path(__file__).resolve().parents[2]
-REFERENCE = "893be1450f25dc9019c1749b3632c6891350f346"
+REFERENCE = "d4a112971455354044cf2c1b37615345579be728"
 INCOMING = REFERENCE
 INCOMING_FILES = set()
 PREFIX = "mod/mp_lockstep_1/"
@@ -40,7 +40,7 @@ def main():
         if missing or extra or different:
             return 1
         manifest = "".join(f"{hashlib.sha256(actual[p]).hexdigest()}  {p}\n" for p in sorted(expected))
-        print(f"PASS: {len(expected)} Lua files: exact Windows dev 893be145 (0.7.1) except {len(MERGED_SHA256)} pinned cumulative merges")
+        print(f"PASS: {len(expected)} Lua files: exact Windows dev d4a11297 (0.7.1) except {len(MERGED_SHA256)} pinned cumulative merges")
         print("Lua manifest sha256: " + hashlib.sha256(manifest.encode()).hexdigest())
         # The glyph overlays are runtime dependencies of the shared stylesheet.
         # Check packaged copies too: Lua equality alone cannot catch omitted assets.
@@ -55,7 +55,7 @@ def main():
             print(f"FAIL: missing, extra or changed HUD glyph: {p}", file=sys.stderr)
         if bad_glyphs:
             return 1
-        print(f"PASS: {len(expected_glyphs)} HUD glyph textures exact Windows dev 893be145 (0.7.1)")
+        print(f"PASS: {len(expected_glyphs)} HUD glyph textures exact Windows dev d4a11297 (0.7.1)")
         # The shared toolbar is installed on Linux too; its two resolutions must
         # accompany the stylesheet and script, including in packaged mod copies.
         buttons = ["res/textures/ui/button/mp_multiplayer.tga",
@@ -65,7 +65,7 @@ def main():
             if not p.is_file() or p.read_bytes() != git("show", commit + ":" + PREFIX + name):
                 print(f"FAIL: missing or changed toolbar texture: {name}", file=sys.stderr)
                 return 1
-        print(f"PASS: {len(buttons)} multiplayer toolbar textures exact Windows dev 893be145")
+        print(f"PASS: {len(buttons)} multiplayer toolbar textures exact Windows dev d4a11297")
         return 0
     except (OSError, subprocess.CalledProcessError) as error:
         print(f"Cannot verify Windows Lua baseline: {error}", file=sys.stderr)
