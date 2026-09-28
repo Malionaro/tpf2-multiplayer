@@ -503,3 +503,9 @@ The [dev `7e3d3bfa` integration](docs/linux/UPSTREAM_dev_7e3d3bfa.md) retains th
 optimization and DLL-map profiler support. Native material-index acceleration
 remains unported: the Linux selection loop is inlined, and the lab failed
 before startup, preventing buffer-lifetime proof. Release remains 0.7.1.1.
+
+The [dev `8066c58f` integration](docs/linux/UPSTREAM_dev_8066c58f.md) retains the default-off Windows
+material-index measurement probe. Native `material_index_probe` remains
+unported after static investigation and a lab startup failure; Linux produces
+no `material_probe.txt`. Windows measurements do not establish native tile
+hashes or compression sizes. Release remains 0.7.1.1.
