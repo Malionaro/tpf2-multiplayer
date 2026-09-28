@@ -279,6 +279,12 @@ if(BUILD_TESTING)
              "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/linux/test_boot_format.py"
              --boot $<TARGET_FILE:tpf2mp_boot> --probe $<TARGET_FILE:test_boot_format_passthrough>)
   endif()
+  add_executable(test_plugin_host_hooks tests/plugin_host_hooks.cpp
+                 src/plugin/cfg_linux.cpp src/hook_posix.cpp)
+  target_include_directories(test_plugin_host_hooks PRIVATE ../src src)
+  target_compile_options(test_plugin_host_hooks PRIVATE -UNDEBUG)
+  target_link_libraries(test_plugin_host_hooks PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+  add_test(NAME plugin_host_hooks COMMAND test_plugin_host_hooks)
   add_executable(test_linux_hooks tests/hooks.cpp src/hook_posix.cpp)
   target_include_directories(test_linux_hooks PRIVATE ../src src)
   target_compile_options(test_linux_hooks PRIVATE -UNDEBUG)

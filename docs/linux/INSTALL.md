@@ -1,7 +1,7 @@
 # TpF2 Multiplayer on Linux: install, uninstall, logs
 
-Current release integration: **0.7.1.2**, Windows dev `71549cff`; see the
-[integration and validation record](UPSTREAM_dev_71549cff.md). All peers, including dedicated
+Current release integration: **0.7.1.2**, Windows dev `a896a1cb`; see the
+[integration and validation record](UPSTREAM_dev_a896a1cb.md). All peers, including dedicated
 servers, must update. Existing native Sandbox town-tool capture, minimap and
 cargo-filter limitations remain. Upstream performance measurements were not
 repeated locally; matching release numbers do not establish gameplay parity.
@@ -686,3 +686,7 @@ The [dev `0eb9eea2` integration](UPSTREAM_dev_0eb9eea2.md) lowers Windows’ aut
 free-commit threshold to 2..3 GiB (unknown RAM: 3 GiB). Native terrain paging
 retains its existing `MemAvailable` policy; `commit_tight_mb` has no native
 effect. Release remains 0.7.1.1.
+
+The [dev `a896a1cb` integration](UPSTREAM_dev_a896a1cb.md) fixes the native plugin host’s
+rejection of 5–13-byte hooks, including the terrain sidecar’s 13-byte AddTile
+hook. Release remains 0.7.1.2; local lab startup was blocked before the game ran.
