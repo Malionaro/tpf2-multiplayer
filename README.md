@@ -18,8 +18,8 @@ repeat save transfers while a joining player’s mods are packing, queued or
 being delivered. The shared lobby fix applies to native Linux and Windows;
 release remains 0.7.1.2.
 
-Current release integration: **0.7.1.2**, Windows dev `a40180f2`; see the
-[integration and validation record](docs/linux/UPSTREAM_dev_a40180f2.md). All peers, including dedicated
+Current release integration: **0.7.1.3**, Windows dev `a813ea9f`; see the
+[integration and validation record](docs/linux/UPSTREAM_dev_a813ea9f.md). All peers, including dedicated
 servers, must update. Existing native Sandbox town-tool capture, minimap and
 cargo-filter limitations remain. Upstream performance measurements were not
 repeated locally; matching release numbers do not establish gameplay parity.
