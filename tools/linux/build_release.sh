@@ -296,6 +296,7 @@ install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_fdfb79e8.md" "$STAGE/UPSTREAM_dev
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_2b4fd093.md" "$STAGE/UPSTREAM_dev_2b4fd093.md"
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_926b9a2c.md" "$STAGE/UPSTREAM_dev_926b9a2c.md"
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_5b817efb.md" "$STAGE/UPSTREAM_dev_5b817efb.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_9602a389.md" "$STAGE/UPSTREAM_dev_9602a389.md"
 for f in LICENSE THIRD_PARTY_NOTICES.md; do [ ! -f "$REPO/$f" ] || install -m 0644 "$REPO/$f" "$STAGE/$f"; done
 printf '%s\n' "$VERSION" >"$STAGE/VERSION"
 

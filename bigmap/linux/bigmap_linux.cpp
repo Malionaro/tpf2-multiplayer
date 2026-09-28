@@ -410,6 +410,7 @@ int Tpf2mpPluginInit(const Tpf2mpHost* host,Tpf2mpPluginInfo* info) {
         linux_sidecar::Log()=H->log;
         linux_sidecar::WriteOn()=H->cfgBool(Section,"terrain_sidecar_write",1);
         TerrainSidecar::g_writeThreads=H->cfgInt(Section,"terrain_sidecar_threads",0);
+        if(H->cfgBool(Section,"terrain_stream",1) && H->dataDir)TerrainSidecar::SetStreamDir(H->dataDir());
         // Publish each trampoline directly before its entry patch becomes visible.
         // Until all three succeed, callbacks forward without sidecar activity.
         const bool hooked=sites &&

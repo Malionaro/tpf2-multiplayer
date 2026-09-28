@@ -636,3 +636,9 @@ The [dev `926b9a2c` integration](UPSTREAM_dev_926b9a2c.md) sorts vehicles at a s
 unload queues by entity ID on native Linux. All peers need these changes;
 release remains 0.7.1.1. Static ELF and native regressions pass; the lab
 failed before game startup, so live join validation remains outstanding.
+
+The [dev `9602a389` integration](UPSTREAM_dev_9602a389.md) adds experimental
+terrain streaming. `terrain_stream=1` (default) reads the host's growing sidecar
+only when `terrain_sidecar=1` is explicitly enabled. `terrain_stream=0` disables
+stream reading, not lobby sending. Native sidecars remain off by default;
+live terrain ownership and lifetime validation are still outstanding.

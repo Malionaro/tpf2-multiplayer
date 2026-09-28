@@ -8,6 +8,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <thread>
+#include <sys/mman.h>
 #include "../sidecar_linux.h"
 
 namespace {
@@ -113,12 +115,13 @@ int main() {
     }
     assert(!TerrainSidecar::Loaded());
 
-    // 3. A partial load (one tile never added) runs the pass and changes no record.
+    // 3. A tile AddTile did not serve (its hook missed it) is served at the pass.
     f.Clear();
     Load(f, id, N - 1);
-    assert(f.heights[0] == want[0]);
-    assert(!Pass(f));
-    for (int i = 0; i < N; ++i) assert(f.Version(i) == 1);
+    assert(f.heights[0] == want[0] && f.heights[N - 1] != want[N - 1]);
+    assert(Pass(f));
+    assert(f.heights[N - 1] == want[N - 1]);
+    for (int i = 0; i < N; ++i) assert(f.Version(i) == 2);
 
     // 4. A tile gone from the terrain (no vector) refuses too.
     f.Clear();
@@ -153,9 +156,10 @@ int main() {
     linux_sidecar::SaveHook(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &inactive, 0, nullptr);
     assert(stat((g_dir + "/Inactive.sav").c_str(), &st) == 0);
     assert(stat((g_dir + "/Inactive.terr").c_str(), &st) != 0);
-    linux_sidecar::LastTerrain() = nullptr;
+    linux_sidecar::ForgetTerrains();
     Load(f, id, N);
-    assert(!linux_sidecar::LastTerrain() && !TerrainSidecar::Loaded() && !Pass(f));
+    char inactiveWhy[200];
+    assert(!linux_sidecar::PickTerrain(inactiveWhy, sizeof inactiveWhy) && !TerrainSidecar::Loaded() && !Pass(f));
     linux_sidecar::Enabled().store(true);
 
     // 8. Two terrain versions, as a real load builds: the first skip keeps the
@@ -163,7 +167,7 @@ int main() {
     {
         g_savContent = "save v3";
         f.Fill(7);
-        // Disabled forwarding above cleared LastTerrain; recapture on activation.
+        // Disabled forwarding above cleared the terrain candidates; recapture on activation.
         linux_sidecar::AddTileHook(f.terrain, 1000, 0, 0, 0, 0);
         linux_sidecar::WriteOn() = true;
         linux_sidecar::SaveHook(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &id, 0, nullptr);
@@ -195,6 +199,136 @@ int main() {
             assert(second.MaxZ(i) == f.MaxZ(i));
         }
         assert(!Pass(f) && !Pass(second));
+        // the save captures the live terrain: the one with the most full tiles, and
+        // never a pointer that does not read as a grid
+        *reinterpret_cast<void**>(second.records + 2 * 40 + 8) = nullptr;
+        linux_sidecar::NoteTerrain(reinterpret_cast<void*>(uintptr_t(0x10)));
+        char why[200];
+        assert(linux_sidecar::PickTerrain(why, sizeof why) == f.terrain);
+        assert(linux_sidecar::FullTiles(reinterpret_cast<void*>(uintptr_t(0x10))) < 0);
+        assert(linux_sidecar::FullTiles(f.terrain) == N && linux_sidecar::FullTiles(second.terrain) == N - 1);
+        // A mapped but inaccessible candidate/grid/vector must fail without a fault.
+        void* denied = mmap(nullptr, 4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        assert(denied != MAP_FAILED);
+        assert(linux_sidecar::FullTiles(denied) < 0);
+        *reinterpret_cast<void**>(second.terrain + 0x18) = denied;
+        assert(linux_sidecar::FullTiles(second.terrain) < 0);
+        *reinterpret_cast<void**>(second.terrain + 0x18) = second.grid;
+        *reinterpret_cast<void**>(second.records + 2 * 40 + 8) = denied;
+        assert(linux_sidecar::FullTiles(second.terrain) == N - 1);
+        assert(!munmap(denied, 4096));
+        linux_sidecar::ForgetTerrains();                 // `second` is going away
+    }
+
+    // 10. A STREAM: the host's sidecar arriving in <data>/terrain_stream/ while
+    //     the load runs. No sidecar beside the save.
+    {
+        const std::string data = local + "/data", sdir = data + "/terrain_stream";
+        assert(!mkdir(data.c_str(), 0755) && !mkdir(sdir.c_str(), 0755));
+        TerrainSidecar::SetStreamDir(data.c_str());
+        assert(std::string(TerrainSidecar::g_streamDir) == sdir + "/");
+        g_savContent = "save v4";
+        linux_sidecar::WriteOn() = true;
+        f.Fill(11);
+        linux_sidecar::AddTileHook(f.terrain, 1000, 0, 0, 0, 0);
+        std::vector<uint16_t> want4[N];
+        for (int i = 0; i < N; ++i) want4[i] = f.heights[i];
+        linux_sidecar::SaveHook(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &id, 0, nullptr);
+        std::vector<uint8_t> whole;
+        { FILE* t = fopen(terr.c_str(), "rb"); assert(t); int c; while ((c = fgetc(t)) != EOF) whole.push_back(uint8_t(c)); fclose(t); }
+        assert(!remove(terr.c_str()));                                    // the joiner has only the stream
+        const std::string stream = sdir + "/1234.terr";
+        auto put = [&](size_t from, size_t to) {
+            FILE* s = fopen(stream.c_str(), from ? "ab" : "wb"); assert(s);
+            fwrite(whole.data() + from, 1, to - from, s); fclose(s);
+        };
+
+        // a) the file grows in odd pieces: every Refresh indexes the whole records so far
+        put(0, 20);                                                       // not even the header: not found yet
+        f.Clear();
+        linux_sidecar::LoadHook(nullptr, nullptr, nullptr, &id, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+        linux_sidecar::AddTileHook(f.terrain, 1000, 0, 0, 0, 0);
+        assert(!TerrainSidecar::Loaded());
+        size_t at = 20; uint32_t lastIndexed = 0;
+        put(at, 45); at = 45;                                             // header (36 B) and part of the first record
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));      // past TryStream's throttle
+        linux_sidecar::AddTileHook(f.terrain, 1000, 0, 0, 0, 0);
+        assert(TerrainSidecar::Loaded() && TerrainSidecar::Progress().streaming && TerrainSidecar::Progress().indexed == 0);
+        for (size_t step = 7; at < whole.size(); step = step * 3 + 5) {
+            const size_t to = std::min(whole.size(), at + step);
+            put(at, to); at = to;
+            const bool more = TerrainSidecar::Refresh();
+            const auto p = TerrainSidecar::Progress();
+            assert(p.indexed >= lastIndexed && p.bytes == at && more == (at < whole.size()));
+            lastIndexed = p.indexed;
+        }
+        assert(lastIndexed == N && !TerrainSidecar::Progress().streaming);
+        for (int i = 0; i < N; ++i) assert(TerrainSidecar::Has(uint32_t(i)));
+        TerrainSidecar::EndApply();
+
+        // b) half there at AddTile, the rest arriving while the pass waits: every
+        //    tile served (half at AddTile, half at the pass) and the pass skipped
+        const size_t half = whole.size() / 2;
+        put(0, half);
+        f.Clear();
+        Load(f, id, N);
+        const auto p0 = TerrainSidecar::Progress();
+        assert(p0.loaded && p0.streaming && p0.indexed > 0 && p0.indexed < N);
+        int servedAtAdd = 0;
+        for (int i = 0; i < N; ++i) servedAtAdd += f.heights[i] == want4[i];
+        assert(servedAtAdd == int(p0.indexed));
+        std::thread host([&] { std::this_thread::sleep_for(std::chrono::milliseconds(300)); put(half, whole.size()); });
+        assert(Pass(f));
+        host.join();
+        for (int i = 0; i < N; ++i) assert(f.heights[i] == want4[i]);
+        assert(!TerrainSidecar::Loaded());
+
+        // c) the stream found only at the pass (nothing when the tiles were added)
+        assert(!remove(stream.c_str()));
+        f.Clear();
+        Load(f, id, N);
+        assert(!TerrainSidecar::Loaded());
+        put(0, whole.size());
+        assert(Pass(f));
+        for (int i = 0; i < N; ++i) assert(f.heights[i] == want4[i]);
+
+        // d) a pass on a version that already passed is in play: it runs and releases
+        f.Clear();
+        Load(f, id, N);
+        assert(Pass(f));
+        assert(!Pass(f));                                                 // the same version again, in play: it runs
+        Load(f, id, N);                                                   // a new load of the same grid starts afresh
+        assert(Pass(f));
+        // e) Nothing arrived during the load: a later pass in play must not
+        // discover the old load's stream and overwrite terrain edits.
+        assert(!remove(stream.c_str()));
+        f.Clear();
+        Load(f, id, N);
+        assert(!Pass(f));
+        put(0, whole.size());
+        f.Fill(99);
+        const auto edited = f.heights[0];
+        assert(!Pass(f) && f.heights[0] == edited);
+
+        // f) One valid record followed by a malformed record in a refresh:
+        // preserve the valid record's backing storage and refuse the suffix.
+        put(0, sizeof(TerrainSidecar::FileHeader));
+        Load(f, id, N);
+        assert(TerrainSidecar::Loaded());
+        TerrainSidecar::TileHeader first{};
+        memcpy(&first, whole.data() + sizeof(TerrainSidecar::FileHeader), sizeof first);
+        const size_t one = sizeof(TerrainSidecar::FileHeader) + sizeof first + first.bytes;
+        put(sizeof(TerrainSidecar::FileHeader), one);
+        TerrainSidecar::TileHeader broken{};
+        broken.index = N; broken.bytes = 1;
+        FILE* badStream = fopen(stream.c_str(), "ab"); assert(badStream);
+        assert(fwrite(&broken, sizeof broken, 1, badStream) == 1); fclose(badStream);
+        assert(!TerrainSidecar::Refresh());
+        auto scratch = std::make_unique<BlockCodec::DecodeScratch>();
+        assert(TerrainSidecar::ApplyTile(TerrainSidecar::GridOf(f.terrain), first.index, *scratch));
+        assert(f.heights[first.index] == want4[first.index]);
+        assert(!Pass(f));
+        TerrainSidecar::SetStreamDir(nullptr);
     }
 
     // 9. Writing off: a save leaves no sidecar.

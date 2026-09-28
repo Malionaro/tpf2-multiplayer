@@ -609,6 +609,18 @@ HOST_DRAIN = 128            # inbound datagrams the host drains per ready cycle.
 XFER_SELECT_TIMEOUT = 0.002 # host select() timeout while a transfer is active.
 MAX_FILE_RETRIES = 3        # whole-file re-request attempts on a hash mismatch.
 INCOMING_BASENAME = "incoming_save"   # joiner writes incoming_save.sav[.lua/.jpg]
+# THE TERRAIN STREAM (2026-09-28, bigmap/docs/terrain-stream.md). The host's
+# big-map plugin writes "<save>.terr" beside each save: every terrain tile's
+# finished height cache, which lets a load of that save skip the alignment
+# pass (44-75 s on a 50k-tile map). After START the host streams it to every
+# joiner that takes it; the joiner writes it IN ORDER into
+# <data>/terrain_stream/ while its game loads, and the plugin uses what has
+# arrived. Nothing waits for it: a joiner without it loads as before.
+TERR_STREAM = [True]
+TERR_NAME = INCOMING_BASENAME + ".terr"
+TERR_DIRNAME = "terrain_stream"
+TERR_MAX_BYTES = 8 << 30
+TERR_MAGIC = b"TERR\x01\x00\x00\x00"          # 'TERR', format version 1 (terrain_sidecar.h)
 # The ONLY names a joiner will ever write. The sender proposes names in its
 # `fbegin`; anything not on this list is refused outright rather than sanitised,
 # because there is no legitimate reason for a different name to arrive.
@@ -1649,7 +1661,8 @@ class _HostSaveTransfer:
         """
         return _window_for(chunk)
 
-    def __init__(self, sock, sid, blob, files_meta, targets, io, log, mods=None, kind="save", stage_cb=None, extra=None):
+    def __init__(self, sock, sid, blob, files_meta, targets, io, log, mods=None, kind="save", stage_cb=None, extra=None,
+                 overall_sha=None):
         self.sock = sock
         self.kind = kind                      # "save" or "mods" (the round after it)
         # The host loop's view of how far each peer's SAVE is, as this sender
@@ -1673,7 +1686,7 @@ class _HostSaveTransfer:
         self.window = self._pick_window(self.chunk)
         self.total_chunks = (self.total_bytes + self.chunk - 1) // self.chunk
         self.files_meta = files_meta
-        self.overall_sha = hashlib.sha256(blob).hexdigest()
+        self.overall_sha = overall_sha or hashlib.sha256(blob).hexdigest()
         self.io = io
         self.log = log
         self.begin_msg = {"t": "fbegin", "sid": sid,
@@ -2319,6 +2332,13 @@ class _ClientSaveReceiver:
         self._tcp_off = 0
         self._tcp_started = 0.0
 
+    def _allocate(self):
+        """The receive buffer and the chunk map for this session."""
+        self.buf = bytearray(self.total_bytes)
+        # inside on_begin's guard: a host-declared huge total_chunks used to
+        # crash the joiner here instead of failing cleanly through _fail
+        self.have = bytearray(self.total_chunks)
+
     def _manifest_unknown(self):
         """The host could not READ its save's mod list. Not "no mods": the
         player is told, nothing is offered, and the save is still taken --
@@ -2759,10 +2779,7 @@ class _ClientSaveReceiver:
         self.have = None
         self.complete = False
         try:
-            self.buf = bytearray(self.total_bytes)
-            # inside the SAME guard: a host-declared huge total_chunks used to
-            # crash the joiner here instead of failing cleanly through _fail
-            self.have = bytearray(self.total_chunks)
+            self._allocate()
         except (MemoryError, OverflowError):
             self._fail(f"cannot allocate {self.total_bytes} bytes "
                        f"/ {self.total_chunks} chunks")
@@ -3402,6 +3419,220 @@ class _ClientSaveReceiver:
             self._fail("required mod installation failed: " + ", ".join(sorted(set(bad)|absent)))
 
 
+class _QuietIO:
+    """The lobby IO for a background transfer: its events never reach the menu
+    (the terrain stream runs while the game loads; the panel is not about it)."""
+
+    def __init__(self, io):
+        self.dir = io.dir
+
+    def emit(self, event):
+        pass
+
+    def write_state(self, **fields):
+        pass
+
+
+def _terr_for_save(save_path):
+    """The terrain sidecar the host's big-map plugin wrote beside `save_path`
+    for that save as it is on disk, or None. The plugin writes it inside the
+    save and renames it into place after the .sav, so an older one belongs to
+    an earlier version of the save (the joiner's plugin checks the save hash
+    in its header anyway)."""
+    if not isinstance(save_path, str) or not save_path.lower().endswith(".sav"):
+        return None
+    terr = save_path[:-4] + ".terr"
+    try:
+        st, ss = os.stat(terr), os.stat(save_path)
+        if not 36 <= st.st_size <= TERR_MAX_BYTES or st.st_mtime + 2 < ss.st_mtime:
+            return None
+        with open(terr, "rb") as f:
+            if f.read(len(TERR_MAGIC)) != TERR_MAGIC:
+                return None
+    except OSError:
+        return None
+    return terr
+
+
+def _terr_read(path):
+    """WORKER THREAD: (blob, sha256 hex) of a sidecar, or None."""
+    try:
+        with open(path, "rb") as f:
+            blob = f.read()
+    except OSError:
+        return None
+    return blob, hashlib.sha256(blob).hexdigest()
+
+
+class _TerrReceiver(_ClientSaveReceiver):
+    """The host's terrain sidecar, written IN ORDER into
+    <data>/terrain_stream/<sid>.terr as it arrives, while the game loads.
+
+    The big-map plugin reads that file as it grows (TerrainSidecar::Refresh),
+    so only the contiguous prefix is ever on disk: a chunk that arrives ahead
+    of it waits in a small stash, and one past the stash is not taken (the
+    host resends it). Nothing is held whole in memory, nothing is shown in
+    the panel, and a failure costs nothing but the stream: the load computes
+    what it lacks, as without it."""
+
+    STASH_MAX = 4096          # chunks held ahead of the written prefix
+    DONE_SENDS = 60           # fdone repeats after completion (the host stops asking when it resolves)
+
+    def __init__(self, conn, io, log):
+        super().__init__(conn, _QuietIO(io), log)
+        self.kind = "terr"
+        self._file = None
+        self._path = None
+        self._sha = None
+        self._stash = {}
+        self._dirty = False
+        self._t0 = 0.0
+
+    # a terrain round carries no mods: none of the save round's mod bookkeeping
+    def _publish_rows(self, mods):
+        pass
+
+    def _register(self, on_disk):
+        return True
+
+    def _manifest_unknown(self):
+        pass
+
+    def _refusal(self, kind, files):
+        names = [m.get("name") if isinstance(m, dict) else None for m in files]
+        return None if names == [TERR_NAME] else f"refused: unexpected terrain stream file(s) {names}"
+
+    def _allocate(self):
+        self.buf = None                               # chunks go straight to the file
+        self.have = bytearray(self.total_chunks)
+
+    def _close(self, remove=False):
+        f, self._file = self._file, None
+        if f is not None:
+            try:
+                f.close()
+            except OSError:
+                pass
+        if remove and self._path:
+            try:
+                os.remove(self._path)                 # the game may hold it open (Windows): then it stays, unused
+            except OSError:
+                pass
+
+    def on_begin(self, msg):
+        if msg.get("kind") != "terr":
+            return
+        sid = msg.get("sid")
+        if sid == self.sid:
+            super().on_begin(dict(msg, kind="save", mods=[]))      # a repeated fbegin: re-ack (or repeat the verdict)
+            return
+        total = msg.get("total_bytes")
+        if not isinstance(sid, int) or not isinstance(total, int) or not 36 <= total <= TERR_MAX_BYTES:
+            self._send({"t": "fdone", "sid": sid, "ok": False, "final": True})
+            return
+        self._close()
+        self._stash, self._dirty = {}, False
+        folder = os.path.join(modshare.data_dir(), TERR_DIRNAME)
+        try:
+            os.makedirs(folder, exist_ok=True)
+            for name in os.listdir(folder):           # an earlier stream: its load is over
+                if name.endswith((".terr", ".terr.done")):
+                    try:
+                        os.remove(os.path.join(folder, name))
+                    except OSError:
+                        pass
+            self._path = os.path.join(folder, f"{sid & 0xFFFFFFFF}.terr")
+            self._file = open(self._path, "wb", buffering=1 << 20)
+        except OSError as e:
+            self.log(f"[client] terrain stream: cannot write {folder}: {e}")
+            self.sid = sid
+            self._send({"t": "fdone", "sid": sid, "ok": False, "final": True})
+            return
+        self._sha = hashlib.sha256()
+        self._t0 = time.time()
+        super().on_begin(dict(msg, kind="save", mods=[], mods_unknown=False))
+        self.kind = "terr"
+        if self.failed:
+            self._close(remove=True)
+            return
+        self.log(f"[client] terrain stream sid={sid}: {total / 1048576:.1f} MiB into {self._path}")
+
+    def _write(self, data):
+        self._file.write(data)
+        self._sha.update(data)
+        self._dirty = True
+
+    def on_chunk(self, sid, seq, data):
+        if self.sid is None or sid != self.sid:
+            return
+        if self.complete:
+            self._maybe_send_done(force=True)
+            return
+        if self.failed or self._file is None or seq < 0 or seq >= self.total_chunks or self.have[seq]:
+            return
+        size = self.chunk if seq < self.total_chunks - 1 else self.total_bytes - seq * self.chunk
+        if len(data) != size:
+            self._fail(f"chunk {seq} is {len(data)} B, not {size}")
+            return
+        if seq != self.base:
+            if len(self._stash) >= self.STASH_MAX:
+                return                                # not taken: it is nacked and resent
+            self._stash[seq] = bytes(data)
+        self.have[seq] = 1
+        self.recv_count += 1
+        self.recv_bytes += len(data)
+        try:
+            if seq == self.base:
+                self._write(data)
+                self.base += 1
+                while self.base < self.total_chunks and self.have[self.base]:
+                    self._write(self._stash.pop(self.base))
+                    self.base += 1
+        except OSError as e:
+            self._fail(f"write error: {e}")
+            return
+        if self.base >= self.total_chunks:
+            self._finish_stream()
+
+    def _finish_stream(self):
+        ok = self._sha.hexdigest() == self.overall_sha
+        self._close(remove=not ok)
+        secs = max(time.time() - self._t0, 1e-3)
+        if not ok:
+            self._fail("hash mismatch")
+            return
+        self.complete = True
+        self.log(f"[client] terrain stream complete: {self.total_bytes / 1048576:.1f} MiB in {secs:.1f} s "
+                 f"({self.total_bytes / 1048576 / secs:.1f} MiB/s)")
+        self._maybe_send_done(force=True)
+
+    def _fail(self, detail):
+        self.failed = True
+        self.log(f"[client] terrain stream dropped: {detail} (the load computes what it lacks)")
+        self._close(remove=True)
+        self._send({"t": "fdone", "sid": self.sid, "ok": False, "final": True})
+
+    def _maybe_send_done(self, now=None, force=False):
+        if force or self.done_sends < self.DONE_SENDS:
+            super()._maybe_send_done(now=now, force=force)
+
+    def tick(self, now):
+        super().tick(now)
+        # the game's load is done with it (the plugin's marker): stop, the rest would
+        # only compete with the game's own traffic
+        if self.active() and self._path and now - getattr(self, "_done_look", 0.0) >= 1.0:
+            self._done_look = now
+            if os.path.exists(self._path + ".done"):
+                self._fail(f"the load finished with {self.base * 100 // max(self.total_chunks, 1)}% of it")
+                return
+        if self._dirty and self._file is not None:
+            self._dirty = False
+            try:
+                self._file.flush()                    # the plugin reads what is on disk
+            except OSError as e:
+                self._fail(f"write error: {e}")
+
+
 def _clear_stale_incoming(directory, log=_log):
     """Delete a previous session's incoming_save.* from ``directory``.
 
@@ -3857,6 +4088,8 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
     start_save = [False]                    # save flag of the last broadcast start
     last_emitted_roster = [None]
     transfer = [None]                       # the active _HostSaveTransfer, or None
+    terr_transfer = [None]                  # the terrain sidecar streaming to joiners after a START (kind "terr"), or None
+    terr_jobs = queue.Queue()               # (sid, path, targets, (blob, sha) | None) from the sidecar reader thread
     unplaced_feedback = set()               # (addr, sid) of facks/fdones the transfer could not place, logged once each
     upload = [None]                         # relay-only: the leader's save coming in
     pending_resume = [None]                 # relay-only: (leader addr, when) -- the stored world goes out then
@@ -4300,6 +4533,25 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
         log(f"[host] START broadcast (save={start_save[0]}"
             f"{', world switch' if switching else ''}) to "
             f"{len(targets)} of {len(peers)} peer(s)")
+        if save and not relay_only:
+            begin_terr_stream(last_shared[0], targets)
+
+    def begin_terr_stream(save_path, addrs):
+        """The save's terrain sidecar to the joiners just started, while they
+        load. Read and hashed on a worker thread (a big map's is ~600 MB); the
+        loop makes the transfer when it is ready (terr_jobs)."""
+        if not TERR_STREAM[0]:
+            return
+        targets = [(a, peers[a]["name"]) for a in addrs if a in peers and peers[a].get("terr")]
+        if not targets:
+            return
+        path = _terr_for_save(save_path)
+        if path is None:
+            log(f"[host] terrain stream: no sidecar for {os.path.basename(str(save_path))} -- joiners compute their terrain")
+            return
+        sid = (int(time.time() * 1000) + 1) & 0xFFFFFFFF
+        threading.Thread(target=lambda: terr_jobs.put((sid, path, targets, _terr_read(path))),
+                         name="terr-read", daemon=True).start()
 
     # ---- inbound lobby messages -------------------------------------------- #
     def do_join(addr, name, profile=None, is_mesh=False, version=None, recovery_protocol=0):
@@ -4565,6 +4817,7 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
                     msg.get("mesh", False), msg.get("version"), msg.get("recovery", 0))
             if addr in peers:
                 peers[addr]["batches"] = bool(msg.get("batches"))   # a client from 0.6.1.7 on takes a mods round in batches
+                peers[addr]["terr"] = bool(msg.get("terrain_stream"))  # a client from 0.7.2 on takes the terrain stream
         elif t == "links":
             if addr in peers:
                 new = [str(x) for x in msg.get("direct", [])][:CAP]
@@ -4659,6 +4912,12 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
                     transfer[0].on_peer_dropped(addr)
                 roster_changed()
         # ---- reliable save-transfer feedback (receiver -> host) ---------- #
+        elif t in ("fbegin_ack", "tcp_gave_up", "fack", "fdone") and terr_transfer[0] is not None \
+                and msg.get("sid") == terr_transfer[0].sid:
+            tx = terr_transfer[0]
+            if addr in tx.peers:
+                {"fbegin_ack": tx.on_begin_ack, "tcp_gave_up": tx.on_tcp_gave_up,
+                 "fack": tx.on_fack, "fdone": tx.on_fdone}[t](addr, msg)
         elif t == "fbegin_ack":
             if transfer[0] is not None:
                 transfer[0].on_begin_ack(addr, msg)
@@ -5121,7 +5380,7 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
                 last_drop = now
                 frags.expire(now)
                 dead = _keepalive_sweep(peers, now, drop_after,
-                                        (transfer[0], recovery.transfer if recovery else None), log,
+                                        (transfer[0], recovery.transfer if recovery else None, terr_transfer[0]), log,
                                         exempt=set(pack_job[0]["addrs"]) if pack_job[0] else ())
                 for a in dead:
                     log(f"[host] DROP {a} ({peers[a]['name']}) -- silent")
@@ -5459,6 +5718,40 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
                         _send_data(sock, x, {"t": "status", "state": "connected", "detail": detail})
                     # the host waits too: its panel shows the same pace and time left
                     io.emit({"type": "status", "state": "connected", "detail": f"{job['names']}: {detail}"})
+            # The terrain stream: made once its reader is done, pumped, and
+            # forgotten once every joiner finished, failed or left. A new one
+            # (a later START) replaces it: its joiners' loads are over.
+            try:
+                sid_t, path_t, targets_t, read_t = terr_jobs.get_nowait()
+            except queue.Empty:
+                read_t = None
+            else:
+                live_t = [(a, n) for a, n in targets_t if a in peers]
+                if read_t is None:
+                    log(f"[host] terrain stream: could not read {path_t}")
+                elif live_t:
+                    if terr_transfer[0] is not None:
+                        log(f"[host] terrain stream sid={terr_transfer[0].sid} replaced by a newer START")
+                    terr_transfer[0] = _HostSaveTransfer(
+                        sock, sid_t, read_t[0], [{"name": TERR_NAME, "size": len(read_t[0]), "sha256": read_t[1]}],
+                        live_t, _QuietIO(io), log, kind="terr", overall_sha=read_t[1])
+                    log(f"[host] terrain stream: {os.path.basename(path_t)} ({len(read_t[0]) / 1048576:.1f} MiB) "
+                        f"to {', '.join(n for _, n in live_t)} while they load")
+                read_t = None
+            if terr_transfer[0] is not None:
+                tx = terr_transfer[0]
+                try:
+                    for a in list(tx.peers):
+                        if a not in peers:
+                            tx.on_peer_dropped(a)
+                    tx.pump(now)
+                    if tx.all_resolved():
+                        terr_transfer[0] = None
+                        log(f"[host] terrain stream sid={tx.sid}: {tx.done_count()} of {len(tx.peers)} joiner(s) got it"
+                            + (f"; not {', '.join(tx.failed_names())}" if tx.failed_names() else ""))
+                except Exception as e:                     # never crash the lobby: the stream is optional
+                    log(f"[host] terrain stream error: {e!r} -- dropped")
+                    terr_transfer[0] = None
             # Pump the save transfer (if any). Once every peer has resolved:
             #   all done (dropped peers don't block) -> start with save=true;
             #   any FAILED -> failed status naming them, NO start, and the
@@ -5602,6 +5895,8 @@ def run_client(conn, my_name, io, stop=None, host_gone_after=HOST_GONE_AFTER,
     _clear_stale_incoming(io.dir, log)      # never trust a previous session's save
     receiver = receiver_cls(conn, io, log)  # save-transfer receive side
     receiver.my_name = my_name              # said in the TCP hello so the host matches the stream
+    terr_receiver = _TerrReceiver(conn, io, log)   # the host's terrain sidecar, while the game loads
+    terr_receiver.my_name = my_name
     fwd = LogForwarder(forward_logs)        # our log lines -> the host's merged log
     _log_sinks.append(fwd.add)
 
@@ -5859,7 +6154,7 @@ def run_client(conn, my_name, io, stop=None, host_gone_after=HOST_GONE_AFTER,
         if raw[:4] == CHUNK_MAGIC:
             if len(raw) >= 12:
                 sid, seq = struct.unpack("!II", raw[4:12])
-                receiver.on_chunk(sid, seq, raw[12:])
+                (terr_receiver if sid == terr_receiver.sid else receiver).on_chunk(sid, seq, raw[12:])
             return
         try:
             m = json.loads(raw.decode("utf-8"))
@@ -5872,7 +6167,10 @@ def run_client(conn, my_name, io, stop=None, host_gone_after=HOST_GONE_AFTER,
         if recovery and recovery.message(m):
             return
         if t == "bulk_pipe":
-            receiver.on_pipe(m)
+            (terr_receiver if m.get("sid") == terr_receiver.sid else receiver).on_pipe(m)
+            return
+        if t == "fbegin" and m.get("kind") == "terr":
+            terr_receiver.on_begin(m)
             return
         if t == "fbegin":
             if recovery and recovery.begin(m):
@@ -5987,7 +6285,8 @@ def run_client(conn, my_name, io, stop=None, host_gone_after=HOST_GONE_AFTER,
             send({"t": "mode", "mode": str(cmd.get("mode", ""))})
         elif c == "name":
             desired[0] = str(cmd.get("name", "player"))
-            m2 = {"t": "join", "version": LOBBY_VERSION, "name": desired[0], "mesh": mesh is not None, "recovery": 4 if recovery else 0}
+            m2 = {"t": "join", "version": LOBBY_VERSION, "name": desired[0], "mesh": mesh is not None, "recovery": 4 if recovery else 0,
+                  "terrain_stream": 1}
             if profile_code:
                 m2["profile"] = profile_code
             send(m2)
@@ -6051,7 +6350,8 @@ def run_client(conn, my_name, io, stop=None, host_gone_after=HOST_GONE_AFTER,
         relay_thread.start()
 
     join_msg = {"t": "join", "version": LOBBY_VERSION, "name": desired[0], "mesh": mesh is not None, "recovery": 4 if recovery else 0,
-                "batches": 1}          # this client takes a mods round in batches (0.6.1.7)
+                "batches": 1,          # this client takes a mods round in batches (0.6.1.7)
+                "terrain_stream": 1}   # and the host's terrain sidecar while it loads (0.7.2)
     if profile_code:
         join_msg["profile"] = profile_code
     send(join_msg)                                          # announce ourselves
@@ -6100,6 +6400,7 @@ def run_client(conn, my_name, io, stop=None, host_gone_after=HOST_GONE_AFTER,
                 last_dual_tick[0] = now
                 ds.tick({conn.peer: "host"})              # the TCP backup link's counters, every 10 s
             receiver.tick(now)                              # facks / fdone cadence
+            terr_receiver.tick(now)
             if receiver.cancelled:
                 send({"t":"leave"})
                 io.emit({"type":"mods_cancelled", "text":receiver.cancel_reason})
