@@ -5487,7 +5487,12 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
             # Anyone who joined during a transfer is still unstarted: serve them
             # from the same save now that the pipe is free (relay: its stored
             # world; host: the file START GAME shared). One push per batch.
-            if not (recovery and recovery.held) and started[0] and transfer[0] is None and upload[0] is None and last_shared[0] and now - last_serve_check[0] >= 1.0 and now >= serve_hold[0]:
+            # NOT while a mods round is packing or sending: its joiners hold the
+            # save already and start when the mods land. The pipe is free while
+            # the worker packs, and this pushed the whole save to them again,
+            # every round, for as long as they were in the lobby (2026-09-28).
+            mods_busy = pack_job[0] is not None or bool(pack_queue) or mod_round[0] is not None
+            if not (recovery and recovery.held) and started[0] and transfer[0] is None and upload[0] is None and not mods_busy and last_shared[0] and now - last_serve_check[0] >= 1.0 and now >= serve_hold[0]:
                 last_serve_check[0] = now
                 waiting = [a for a in peers if not peers[a].get("started")]
                 fresh = (not relay_only) or (0 <= stored_age() <= HOTJOIN_STORED_MAX)

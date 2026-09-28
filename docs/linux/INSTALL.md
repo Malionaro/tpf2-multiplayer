@@ -1,5 +1,10 @@
 # TpF2 Multiplayer on Linux: install, uninstall, logs
 
+The [dev `effa7243` integration](UPSTREAM_dev_effa7243.md) prevents
+repeat save transfers while a joining player’s mods are packing, queued or
+being delivered. The shared lobby fix applies to native Linux and Windows;
+release remains 0.7.1.2.
+
 Current release integration: **0.7.1.2**, Windows dev `a40180f2`; see the
 [integration and validation record](UPSTREAM_dev_a40180f2.md). All peers, including dedicated
 servers, must update. Existing native Sandbox town-tool capture, minimap and
