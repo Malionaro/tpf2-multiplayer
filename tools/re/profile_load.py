@@ -157,6 +157,9 @@ class ProcState:
         self.by_tid = collections.defaultdict(collections.Counter)
         self.win_tid = collections.Counter()
         self.win_by_tid = collections.defaultdict(collections.Counter)
+        self.win_wait_by_tid = collections.defaultdict(collections.Counter)   # what each thread WAITED on, this window
+        self.threads_shown = 3    # --threads
+        self.window_s = 30.0      # --window, for the "cores busy" line
         self.interval = 0.02      # overwritten from argv so CPU-s are honest
 
     def refresh(self):
@@ -204,6 +207,7 @@ class ProcState:
                 self.waits[key] += 1
                 self.winw[key] += 1
                 self.tid_wait[tid] += 1
+                self.win_wait_by_tid[tid][key] += 1
             else:
                 self.hist[key] += 1
                 self.win[key] += 1
@@ -231,16 +235,28 @@ class ProcState:
         # repaint thread rather than the one doing the load. Window-local counts
         # answer "which thread is on the critical path RIGHT NOW".
         if self.win_tid:
+            # SPINNERS: a thread at ~100% in one module all window (the UI's
+            # win32u loops) crowds the load's threads out of a top-3 list and
+            # says nothing about the load. Listed once, then skipped.
+            spin = [t for t, n in self.win_tid.items()
+                    if n >= 0.9 * self.window_s / self.interval and self.win_by_tid[t].most_common(1)[0][1] >= 0.95 * n]
+            rest = sum(n for t, n in self.win_tid.items() if t not in spin)
+            print('      -- %d spinner thread(s) skipped; the rest: %.1f CPU-s = %.1f cores busy --'
+                  % (len(spin), rest * self.interval, rest * self.interval / max(self.window_s, 1e-9)), flush=True)
             print('      -- busiest threads THIS window --', flush=True)
-            for tid, n in self.win_tid.most_common(3):
-                own = self.win_by_tid[tid].most_common(3)
+            shown = [(t, n) for t, n in self.win_tid.most_common() if t not in spin][:self.threads_shown]
+            for tid, n in shown:
+                own = self.win_by_tid[tid].most_common(4)
                 detail = ', '.join('%s %.0f%%' % (k, 100.0 * c / max(n, 1)) for k, c in own)
-                print('      tid %-7d %5d working (%5.1f CPU-s)  %s'
-                      % (tid, n, n * self.interval, detail), flush=True)
+                waited = sum(self.win_wait_by_tid[tid].values())
+                wdetail = ', '.join('%s %d' % (k.split('+')[0], c) for k, c in self.win_wait_by_tid[tid].most_common(2))
+                print('      tid %-7d %5d working (%5.1f CPU-s) %5d waiting  %s%s'
+                      % (tid, n, n * self.interval, waited, detail, ('  | waits: ' + wdetail) if waited else ''), flush=True)
         self.win.clear()
         self.winw.clear()
         self.win_tid.clear()
         self.win_by_tid.clear()
+        self.win_wait_by_tid.clear()
 
     def dump_total(self, top=20, interval=0.02, per_thread=3):
         b = sum(self.hist.values())
@@ -293,6 +309,7 @@ def main():
     ap.add_argument('--seconds', type=float, default=120.0)
     ap.add_argument('--interval', type=float, default=0.02)
     ap.add_argument('--window', type=float, default=30.0, help='seconds per delta snapshot')
+    ap.add_argument('--threads', type=int, default=3, help='busiest threads listed per window (UI spinners skipped)')
     a = ap.parse_args()
 
     exe_ib, exe_fn = pdata(EXE_PATH)
@@ -327,6 +344,8 @@ def main():
     states = [ProcState(p, exe_ib, exe_fn, exports, exp_addrs) for p in pids]
     for st in states:
         st.interval = a.interval
+        st.threads_shown = a.threads
+        st.window_s = a.window
     raw_ctx = (C.c_char * (CONTEXT_SIZE + 16))()
     ctx = (C.addressof(raw_ctx) + 15) & ~15
 
