@@ -1,7 +1,7 @@
 # TpF2 Multiplayer on Linux: install, uninstall, logs
 
-Current release integration: **0.7.1**, Windows dev `d4a11297`; see the
-[integration and validation record](UPSTREAM_dev_d4a11297.md). All peers, including dedicated
+Current release integration: **0.7.1.1**, Windows dev `412aeb8e`; see the
+[integration and validation record](UPSTREAM_dev_412aeb8e.md). All peers, including dedicated
 servers, must update. Existing native Sandbox town-tool capture, minimap and
 cargo-filter limitations remain. Upstream performance measurements were not
 repeated locally; matching release numbers do not establish gameplay parity.
