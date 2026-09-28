@@ -40,10 +40,23 @@
 // 0x16f0bcb, 0x16b5dc6, 0x17005cc). Kill switch: hotjoinorder=0 in tpf2_menu_flags.txt --
 // on every machine at once, or not at all.
 //
-// Not covered yet (measured order-sensitive, see docs/HOTJOIN_ORDER.md): the
-// terminal waiting queues (FIFO while running, registration order after a
-// load) and the other non-family containers listed there. The node lists
-// themselves (town stagger, industries, stock lists, ...) are the "step" site.
+// The node lists themselves (town stagger, industries, stock lists, ...) are
+// the "step" site. The terminal waiting queues need nothing: the game keeps
+// them sorted by (arrival time, id) and saves the time (docs/re/TERMINAL_WAIT_ORDER.md).
+
+// vehstop   SimEntityAtTerminalSystem::Update 0xa81810 hands the waiting cargo
+//           and people of each line stop to the vehicles standing there
+//           (TransportVehicleSystem+0x220, a vector per (line, stop) in append
+//           order: arrival while running, load order after a load), one running
+//           index shared by all of them. Two trucks at one stop: the retained
+//           host and the joiner loaded different trucks (2026-09-27, the
+//           dedicated server, Line 3). Sorted by id right after the lookup
+//           (0xad5550) returns it, rva 0xa820f4.
+// unload    SimEntityAtVehicleSystem::Update 0xa85460 unloads each (vehicle,
+//           stop, cargo) deque from its front, one entry per unload tick; the
+//           deque is in boarding order while running and load order after a
+//           load, and no saved field records boarding. Sorted by id where the
+//           unload loop starts reading it, rva 0xa85aa5.
 
 // capacity  SimEntityUpdateHelper (every construction build, replace or
 //           demolish, town growth included) gathers the affected people and
@@ -90,7 +103,8 @@
 //           through the old->new position map, after checking that every full
 //           slot names the node it points at.
 
-extern "C" uint64_t g_hjResume0 = 0, g_hjResume1 = 0, g_hjResume2 = 0, g_hjResume3 = 0, g_hjResume4 = 0, g_hjResume5 = 0, g_hjResume6 = 0;
+extern "C" uint64_t g_hjResume0 = 0, g_hjResume1 = 0, g_hjResume2 = 0, g_hjResume3 = 0, g_hjResume4 = 0, g_hjResume5 = 0, g_hjResume6 = 0,
+    g_hjResume7 = 0, g_hjResume8 = 0;
 extern "C" void HotJoinCandidatesRelay();
 extern "C" void HotJoinDeparturesRelay();
 extern "C" void HotJoinArrivalsRelay();
@@ -98,6 +112,8 @@ extern "C" void HotJoinIdleRelay();
 extern "C" void HotJoinCapacityRelay();
 extern "C" void HotJoinFreedIdsRelay();
 extern "C" void HotJoinStepRelay();
+extern "C" void HotJoinVehStopRelay();
+extern "C" void HotJoinUnloadRelay();
 
 struct HotJoinSite {
     const char* name;
@@ -108,7 +124,7 @@ struct HotJoinSite {
     void (*relay)();
     uint64_t* resume;
 };
-static const HotJoinSite kHotJoinSites[7] = {
+static const HotJoinSite kHotJoinSites[9] = {
     { "candidates", 0x927df6, 7, { 0xC7, 0x45, 0x87, 0x01, 0x00, 0x00, 0x00, 0xE8 }, 8, HotJoinCandidatesRelay, &g_hjResume0 },
     { "departures", 0xa7c9fd, 5, { 0x48, 0x8D, 0x54, 0x24, 0x28, 0x48, 0x8B, 0x49, 0x10, 0xE8 }, 10, HotJoinDeparturesRelay, &g_hjResume1 },
     { "arrivals",   0xa59928, 5, { 0x48, 0x8D, 0x54, 0x24, 0x68, 0x48, 0x8B, 0x49, 0x10, 0xE8 }, 10, HotJoinArrivalsRelay, &g_hjResume2 },
@@ -116,12 +132,15 @@ static const HotJoinSite kHotJoinSites[7] = {
     { "capacity",   0x21234de, 7, { 0x49, 0x8B, 0xBD, 0x20, 0x01, 0x00, 0x00, 0x48, 0x8D, 0x9F }, 10, HotJoinCapacityRelay, &g_hjResume4 },
     { "freed-ids",  0x23de385, 8, { 0x49, 0x8B, 0x04, 0x24, 0x48, 0x8B, 0x50, 0x08, 0x4C, 0x8B }, 10, HotJoinFreedIdsRelay, &g_hjResume5 },
     { "step",       0x23e1850, 6, { 0x40, 0x57, 0x41, 0x54, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x40 }, 10, HotJoinStepRelay, &g_hjResume6 },
+    { "vehstop",    0xa820f4, 7, { 0x48, 0x89, 0x85, 0x88, 0x00, 0x00, 0x00, 0x8B, 0x9E, 0x98 }, 10, HotJoinVehStopRelay, &g_hjResume7 },
+    { "unload",     0xa85aa5, 5, { 0x4C, 0x8B, 0x44, 0x24, 0x48, 0x4F, 0x8B, 0x74, 0x28, 0x18 }, 10, HotJoinUnloadRelay, &g_hjResume8 },
 };
 static const int kHotJoinSiteCount = (int)(sizeof(kHotJoinSites) / sizeof(kHotJoinSites[0]));
 static const int kHotJoinCapacitySite = 4;
 static const int kHotJoinFreedIdsSite = 5;   // the relay hands the address of the slot holding the vector's address
 static const int kHotJoinStepSite = 6;       // the relay hands the address of the saved rcx (the engine)
-static volatile LONG64 g_hjCalls[7] = { 0 }, g_hjReordered[7] = { 0 }, g_hjRefused[7] = { 0 }, g_hjFaults[7] = { 0 };
+static const int kHotJoinUnloadSite = 8;     // the relay hands the saved-register block
+static volatile LONG64 g_hjCalls[9] = { 0 }, g_hjReordered[9] = { 0 }, g_hjRefused[9] = { 0 }, g_hjFaults[9] = { 0 };
 
 // MSVC unordered_map<Entity, Info> inside the helper's data block D: 0x40
 // bytes each, the ring's sentinel at map+8, the size at map+0x10; list node
@@ -191,6 +210,34 @@ static void HotJoinSortImpl(int site, int32_t** vec)
         Log("[hotjoinorder] alive: %s calls=%lld reordered=%lld refused=%lld faults=%lld last=%lld\n",
             kHotJoinSites[site].name, (long long)n, (long long)g_hjReordered[site],
             (long long)g_hjRefused[site], (long long)g_hjFaults[site], (long long)(e - b));
+}
+
+#include "../entity_deque_canon.h"
+
+// unload: `regs` is the relay's saved-register block (r15 at +0 ... r13 at
+// +0x10, 15 pushes = 0x78 bytes); the engine's rsp is regs+0x78 and the deque
+// it is about to unload is at [rsp+0x48] + r13.
+static void HotJoinUnloadImpl(uint8_t* regs)
+{
+    const int site = kHotJoinUnloadSite;
+    const LONG64 n = InterlockedIncrement64(&g_hjCalls[site]);
+    const uint64_t r13 = *(uint64_t*)(regs + 0x10);
+    uint8_t* deque = (uint8_t*)(*(uint64_t*)(regs + 0x78 + 0x48) + r13);
+    static std::vector<int32_t*> at;   // the sim thread only
+    static std::vector<int32_t> ids;
+    int r = DQ_REFUSED;
+    if (Readable(deque, 0x28)) {
+        uint8_t* map = *(uint8_t**)(deque + 8);
+        const size_t mapsize = *(size_t*)(deque + 0x10);
+        if (*(size_t*)(deque + 0x20) < 2 || (map && mapsize <= ((size_t)1 << 24) && Readable(map, mapsize * 8)))
+            r = DequeCanonMsvc(deque, at, ids);
+    }
+    if (r == DQ_REORDERED) InterlockedIncrement64(&g_hjReordered[site]);
+    else if (r == DQ_REFUSED && InterlockedIncrement64(&g_hjRefused[site]) == 1)
+        Log("[hotjoinorder] ERROR: unload: not an entity deque at %p -- left in boarding order\n", (void*)deque);
+    if (n == 1 || !(n & 0xffff))
+        Log("[hotjoinorder] alive: unload calls=%lld reordered=%lld refused=%lld faults=%lld\n", (long long)n,
+            (long long)g_hjReordered[site], (long long)g_hjRefused[site], (long long)g_hjFaults[site]);
 }
 
 #include "../family_canon.h"
@@ -293,6 +340,11 @@ extern "C" void HotJoinSort(int site, int32_t** vec)
         __except (EXCEPTION_EXECUTE_HANDLER) { InterlockedIncrement64(&g_hjFaults[site]); }
         return;
     }
+    if (site == kHotJoinUnloadSite) {
+        __try { HotJoinUnloadImpl((uint8_t*)vec); }
+        __except (EXCEPTION_EXECUTE_HANDLER) { InterlockedIncrement64(&g_hjFaults[site]); }
+        return;
+    }
     if (site == kHotJoinCapacitySite) {
         __try { HotJoinRelinkImpl(*(uint8_t**)vec); }
         __except (EXCEPTION_EXECUTE_HANDLER) { InterlockedIncrement64(&g_hjFaults[site]); }
@@ -327,9 +379,11 @@ static void InstallHotJoinOrder()
     }
     Log("[hotjoinorder] installed: destination candidates, departures, walk arrivals, the idle list and the "
         "capacity-change maps are read in entity-id order, freed ids join the free list sorted, every ECS "
-        "node list is in entity order at each sim step (rva=%llx, %llx, %llx, %llx, %llx, %llx, %llx)\n",
+        "node list is in entity order at each sim step, the vehicles at a stop and the unload queues are in id order "
+        "(rva=%llx, %llx, %llx, %llx, %llx, %llx, %llx, %llx, %llx)\n",
         (unsigned long long)kHotJoinSites[0].rva, (unsigned long long)kHotJoinSites[1].rva,
         (unsigned long long)kHotJoinSites[2].rva, (unsigned long long)kHotJoinSites[3].rva,
         (unsigned long long)kHotJoinSites[4].rva, (unsigned long long)kHotJoinSites[5].rva,
-        (unsigned long long)kHotJoinSites[6].rva);
+        (unsigned long long)kHotJoinSites[6].rva, (unsigned long long)kHotJoinSites[7].rva,
+        (unsigned long long)kHotJoinSites[8].rva);
 }

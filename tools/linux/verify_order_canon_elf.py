@@ -24,8 +24,8 @@ with Path(sys.argv[1]).open('rb') as stream:
         return stream.read(size)
     source = (root / 'native/linux/src/order_canon_linux.cpp').read_text()
     checks = re.findall(r'\{ "([a-z-]+)", (0x[0-9a-f]+), (\d+), (-?0x[0-9a-f]+),\s*\{([^}]+)\}', source)
-    assert len(checks) == 7
-    functions = [(0x1502600,1148),(0x16f0ae0,354),(0x16b5790,2198),(0x1700540,5117),(0x2e6e0c0,6794),(0x32567a0,1315),(0x32515b0,156)]
+    assert len(checks) == 9
+    functions = [(0x1502600,1148),(0x16f0ae0,354),(0x16b5790,2198),(0x1700540,5117),(0x2e6e0c0,6794),(0x32567a0,1315),(0x32515b0,156),(0x16f6090,12884),(0x16fd820,4572)]
     md = Cs(CS_ARCH_X86, CS_MODE_64); md.detail = True
     for (name, address, steal, offset, values),(start,size) in zip(checks,functions):
         address,steal = int(address,16),int(steal)
@@ -39,6 +39,15 @@ with Path(sys.argv[1]).open('rb') as stream:
             if (i.mnemonic.startswith('j') or i.mnemonic=='call') and i.operands and i.operands[0].type==X86_OP_IMM:
                 assert not address<i.operands[0].imm<address+steal, (name,i.address)
         print(f'PASS: {name}: {address:#x}, {expected.hex(" ")}, {steal} bytes; base offset {offset}')
+    # Itanium system vtables: EntityAdded and Update identify both consumers.
+    for vtable, added, update in [(0x59c0c40, 0x16f5bb0, 0x16f6090),
+                                  (0x59c0cb0, 0x16fd260, 0x16fd820)]:
+        assert struct.unpack('<Q', read(vtable + 4*8, 8))[0] == added
+        assert struct.unpack('<Q', read(vtable + 11*8, 8))[0] == update
+    assert read(0x16f680d, 5) == bytes.fromhex('e8 ce b0 07 00')  # getter -> rax
+    assert read(0x16fde3f, 14) == bytes.fromhex(
+        '4c 8d 3c bf 41 89 fd 49 c1 e7 04 49 01 c7')  # 80-byte deque stride
+    print('PASS: terminal/vehicle system vtables, vector lookup call, deque stride')
     getters = (root / 'native/linux/src/family_getters_linux.h').read_text()
     list_part, none_part = getters.split('kFamilyNoListGetters[] = {')
     lists = [int(a, 16) for a in re.findall(r'^\s+(0x[0-9a-f]+),', list_part, re.M)]
@@ -59,4 +68,4 @@ with Path(sys.argv[1]).open('rb') as stream:
         assert read(name,21).split(b'\0')[0] == f'N3ecs8NodeListILi{n}EEE'.encode()
     assert read(0xa617e8,5) == bytes.fromhex('e8 c3 fd 7e 02')
     print('PASS: family getters (28 node-list + 35 no-list, the complete vtable inventory), NodeList<1..5> RTTI/vtables, Step iteration call')
-    print('PASS: build-id, all seven byte guards, instruction boundaries, no interior branches')
+    print('PASS: build-id, all nine byte guards, instruction boundaries, no interior branches')

@@ -631,3 +631,8 @@ The [dev `5b817efb` integration](UPSTREAM_dev_5b817efb.md) keeps a terrain sidec
 while another served terrain version awaits its pass. Each version skips only
 once; a pass that runs releases the file. Native sidecars remain experimental
 and default off. Live validation was blocked before game startup.
+
+The [dev `926b9a2c` integration](UPSTREAM_dev_926b9a2c.md) sorts vehicles at a stop and
+unload queues by entity ID on native Linux. All peers need these changes;
+release remains 0.7.1.1. Static ELF and native regressions pass; the lab
+failed before game startup, so live join validation remains outstanding.

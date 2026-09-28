@@ -1063,3 +1063,8 @@ and the detailed binary maps under `docs/re/linux/`.
 Recovery evidence remains in the original Claude session directory. The
 pre-merge tracked Linux diff was backed up to
 `/tmp/tpf2mp-pre-0.4.22-linux.patch`; the named pre-merge stash was retained.
+
+The [dev `926b9a2c` integration](UPSTREAM_dev_926b9a2c.md) sorts vehicles at a stop and
+unload queues by entity ID on native Linux. All peers need these changes;
+release remains 0.7.1.1. Static ELF and native regressions pass; the lab
+failed before game startup, so live join validation remains outstanding.
