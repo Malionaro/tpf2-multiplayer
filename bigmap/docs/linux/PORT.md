@@ -548,3 +548,13 @@ Native policy is unchanged. Windows commit accounting and Linux physical-memory
 headroom are different inputs; this does not add a native material pager or
 Windows load/commit controller. See [comparison and evidence](../../../docs/re/linux/DEV_2B8505C7.md).
 No new game run or performance measurement was made for this integration.
+
+## Complete-sidecar alignment bypass (dev 0871bfa6, not ported)
+
+Windows can skip a load's alignment computation when a still-loaded sidecar
+served every tile and recorded every height range. Native serving and its
+lifetime contracts remain absent; native alignment continues unchanged.
+Fresh ELF analysis located the equivalent scaled min/max and version stores,
+but the lab launcher failed before startup, preventing live proof.
+See [RE evidence](../../../docs/re/linux/DEV_0871BFA6.md) and
+[integration/tests](../../../docs/linux/UPSTREAM_dev_0871bfa6.md).

@@ -452,3 +452,8 @@ The [dev `bde31323` integration](docs/linux/UPSTREAM_dev_bde31323.md) brings the
 company registry rewrite, rebuilt COMPANIES tab and native free-color tints.
 Release remains 0.7.1.1. Native and shared regression tests pass; the lab launch
 was blocked before game startup, so live gameplay validation remains outstanding.
+
+The [dev `0871bfa6` integration](docs/linux/UPSTREAM_dev_0871bfa6.md) retains Windows' complete-sidecar
+alignment bypass. Native Linux sidecar serving and this bypass remain unported;
+Linux continues its existing alignment path. Static publication metadata was
+verified, but the lab failed before startup, preventing live lifetime proof.
